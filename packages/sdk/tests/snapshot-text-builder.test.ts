@@ -25,6 +25,13 @@ declare function builderResult(): {
     href?: string;
     enabled: boolean;
     visible: boolean;
+    locatorHint?: {
+      kind: string;
+      expression: string;
+      matchCount: number;
+      unique: boolean;
+      ambiguity?: string;
+    };
   }[];
   focus: {
     tag: string;
@@ -199,6 +206,12 @@ describe("snapshotTextExpression", () => {
         id: "save",
         enabled: true,
         visible: true,
+        locatorHint: {
+          kind: "role",
+          expression: 'tab.getByRole("button", { name: "Save" })',
+          matchCount: 1,
+          unique: true,
+        },
       },
       {
         role: "link",
@@ -209,9 +222,31 @@ describe("snapshotTextExpression", () => {
         href: "http://localhost:3000/compare",
         enabled: true,
         visible: true,
+        locatorHint: {
+          kind: "role",
+          expression: 'tab.getByRole("link", { name: "Compare models" })',
+          matchCount: 1,
+          unique: true,
+        },
       },
     ]);
     expect(r.meta.categories.interactables).toEqual({ shown: 2, total: 3, truncated: true });
     expect(r.meta.truncated).toBe(true);
+  });
+
+  it("marks locator hints ambiguous when role and name repeat", () => {
+    document.body.innerHTML = `
+      <button>Save</button>
+      <button>Save</button>`;
+
+    const r = run();
+
+    expect(r.interactables[0].locatorHint).toEqual({
+      kind: "role",
+      expression: 'tab.getByRole("button", { name: "Save" })',
+      matchCount: 2,
+      unique: false,
+      ambiguity: "2 interactables share role/name; scope to a container or use a stronger attribute before acting",
+    });
   });
 });

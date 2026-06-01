@@ -185,6 +185,32 @@ export function snapshotTextExpression(maxItems: number, maxTextLength: number):
     if (!isVisible(el)) return false;
     return Boolean(roleOf(el) || interactableName(el));
   });
+  const quote = (value) => JSON.stringify(String(value || ""));
+  const roleNameKey = (role, name) => role && name ? role + "::obu::" + name : "";
+  const roleNameCounts = new Map();
+  for (const el of interactableEls) {
+    const role = roleOf(el);
+    const name = interactableName(el);
+    const key = roleNameKey(role, name);
+    if (!key) continue;
+    roleNameCounts.set(key, (roleNameCounts.get(key) || 0) + 1);
+  }
+  const locatorHintFor = (el) => {
+    const role = roleOf(el);
+    const name = interactableName(el);
+    const key = roleNameKey(role, name);
+    if (!key) return null;
+    const matchCount = roleNameCounts.get(key) || 0;
+    return {
+      kind: "role",
+      expression: "tab.getByRole(" + quote(role) + ", { name: " + quote(name) + " })",
+      matchCount,
+      unique: matchCount === 1,
+      ...(matchCount > 1
+        ? { ambiguity: matchCount + " interactables share role/name; scope to a container or use a stronger attribute before acting" }
+        : {}),
+    };
+  };
 
   const headings = cap(headingEls).map((el) => ({ level: Number(el.tagName.slice(1)), text: cleanText(el) }));
   const buttons = cap(buttonEls).map((el) => cleanText(el) || text(el.value) || text(el.getAttribute("aria-label"))).filter(Boolean);
@@ -198,16 +224,20 @@ export function snapshotTextExpression(maxItems: number, maxTextLength: number):
     enabled: isEnabled(el),
     visible: isVisible(el),
   }));
-  const interactables = cap(interactableEls).map((el) => ({
-    role: roleOf(el),
-    name: interactableName(el),
-    tag: text((el.tagName || "").toLowerCase()),
-    type: text(el.getAttribute("type")),
-    id: text(el.id),
-    ...(el.href ? { href: text(el.href) } : {}),
-    enabled: isEnabled(el),
-    visible: isVisible(el),
-  }));
+  const interactables = cap(interactableEls).map((el) => {
+    const locatorHint = locatorHintFor(el);
+    return {
+      role: roleOf(el),
+      name: interactableName(el),
+      tag: text((el.tagName || "").toLowerCase()),
+      type: text(el.getAttribute("type")),
+      id: text(el.id),
+      ...(el.href ? { href: text(el.href) } : {}),
+      enabled: isEnabled(el),
+      visible: isVisible(el),
+      ...(locatorHint ? { locatorHint } : {}),
+    };
+  });
 
   const cat = (shown, total) => ({ shown, total, truncated: shown < total });
   const categories = {

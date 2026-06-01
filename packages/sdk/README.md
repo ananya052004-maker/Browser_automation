@@ -65,7 +65,7 @@ Call `agent.help()` for the live API table. Main layers:
 | `tab.content.export({ format })` | `tab_content_export` |
 | `tab.clipboard.readText/writeText/read/write` | `tab_clipboard_*` |
 | `tab.dom_cua.*` | `dom_cua_*` |
-| `tab.dev.cdp(method, params)` | `executeCdp` |
+| `tab.dev.cdp(method, params)` / `tab.dev.logs()` | `executeCdp` |
 | `display(value)` | Delegates to the kernel-locked display global |
 
 `browser.tabs.create()` accepts either a URL string or `{ url }`. When a workflow
@@ -104,9 +104,9 @@ and spills image-like base64 payloads to resources, but compact summaries remain
 the intended path.
 
 Rich clipboard `read()` / `write()` use Codex-shaped multi-MIME clipboard items
-on WebExtension sessions through the target-page virtual clipboard. Cookies,
-storage, and arbitrary evaluation are intentionally not first-class SDK methods;
-use `tab.dev.cdp(...)` when needed.
+on WebExtension sessions through the target-page virtual clipboard. Use
+`tab.dev.logs()` for page console output and `tab.dev.cdp(...)` for direct CDP
+protocol access such as cookies, storage, and other low-level browser domains.
 
 WebExtension `tab.cua.type()`, `tab.dom_cua.type()`, and plain
 `Cmd/Ctrl+V` keypresses use the same virtual clipboard path, so paste handlers

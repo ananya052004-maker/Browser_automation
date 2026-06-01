@@ -1,6 +1,5 @@
 ---
 source: crates/obu-node-repl/tests/description_snapshot.rs
-assertion_line: 4
 expression: body
 ---
 Execute JavaScript in a persistent Node-backed open-browser-use kernel. Each call
@@ -79,10 +78,13 @@ narrow to the relevant container or a few candidates. Don't re-dump a full snaps
 every cell, and don't loop per-element reads (`getAttribute`/`innerText`) as a search —
 parse one `domSnapshot()` instead. `tab.snapshotText()` is a capped affordance summary
 (~20 items/category) of clickable/typable chrome — NOT page content (it carries no prose).
-Its `interactables[]` entries expose role/name/tag/type/href plus enabled/visible flags,
-which is the quickest way to choose a role locator without guessing from prose. On dense,
-result-grid, or SPA pages prefer `domSnapshot()` for the full page, or run your own
-`tab.evaluate(...)` query for a scoped slice. It self-describes its compaction —
+Its `interactables[]` entries expose role/name/tag/type/href plus enabled/visible flags
+and, when available, `locatorHint.expression` with `matchCount`/`unique`/`ambiguity`
+evidence. Prefer a unique hint before acting; ambiguous hints mean you should scope
+to a container, use `.nth(...)`, or inspect a stronger attribute instead of repeating
+the same broad locator. On dense, result-grid, or SPA pages prefer `domSnapshot()` for
+the full page, or run your own `tab.evaluate(...)` query for a scoped slice. It
+self-describes its compaction —
 `result.meta.truncated` plus per-category `meta.categories.{links,headings,interactables,...}.{shown,total}`
 — so branch on `meta.truncated` to decide whether to go to `domSnapshot()`/`evaluate()`
 rather than trusting the capped list as complete.
@@ -131,7 +133,8 @@ matches):
 5. Coordinate or visual targeting (the modality ladder below) — only when no stable
    DOM locator exists.
 
-When a broad locator is ambiguous, do not retry the same selector. Narrow it with
+When a broad locator is ambiguous, do not retry the same selector. If available, inspect
+`snapshotText().interactables[].locatorHint.matchCount` / `.unique` first. Narrow it with
 `.first()`, `.nth(i)`, `.filter({ visible: true })`, a role/name locator, or a
 container scope. If `snapshotText().meta.truncated` is true, inspect
 `snapshotText().interactables` or a scoped `domSnapshot()` before acting.
@@ -244,12 +247,12 @@ a short status summary — read `structuredContent` for the actual data. Key fie
   `await agent.browsers.get(kind)` to connect lazily.
 - `help()` — prints the full SDK API table.
 
-Reading page console output: there is no `tab.dev.logs()`. `tab.dev.cdp(...)` is
-request/response only (events like `Log.entryAdded` / `Runtime.consoleAPICalled` are
-not delivered, and `Log.enable`/`Runtime.enable` alone surface nothing). Install a
-buffer with one `tab.dev.cdp("Runtime.evaluate", ...)` call that overrides `console.*`
-into a page global, then poll it with more `Runtime.evaluate` calls; keep payloads
-small.
+Reading page console output: use `await tab.dev.logs()` to install and read a
+small page-side console buffer. The first call installs the buffer for subsequent
+`console.*` calls in the current page; call it once before the action you want to
+debug, then call it again after the action. Use `{ clear: true }` when you want
+to drain the buffer, and keep `maxEntries` small. Use `tab.dev.cdp(...)` only
+when you need direct CDP protocol access.
 
 ## Token budget
 

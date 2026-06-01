@@ -107,6 +107,14 @@ export type TabSnapshotTextOptions = TabEvaluateOptions & {
   maxTextLength?: number;
 };
 
+export type TabSnapshotLocatorHint = {
+  kind: "role";
+  expression: string;
+  matchCount: number;
+  unique: boolean;
+  ambiguity?: string;
+};
+
 export type TabSnapshotInteractable = {
   role: string;
   name: string;
@@ -116,6 +124,7 @@ export type TabSnapshotInteractable = {
   href?: string;
   enabled: boolean;
   visible: boolean;
+  locatorHint?: TabSnapshotLocatorHint;
 };
 
 export type TabSnapshotTextResult = {

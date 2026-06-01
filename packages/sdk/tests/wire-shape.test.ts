@@ -1694,6 +1694,56 @@ describe("SDK wire-shape contracts", () => {
     ]);
   });
 
+  it("TabDev.logs installs and reads a bounded page console buffer through CDP", async () => {
+    const restoreMeta = setRequestMeta();
+    const transport = new FakeTransport();
+    transport.responses.set(M.EXECUTE_CDP, {
+      result: {
+        value: [
+          {
+            level: "log",
+            text: "hello 42",
+            args: ["hello", 42],
+            timestamp: 123,
+          },
+        ],
+      },
+    });
+    const tab = new Tab(asTransport(transport), new Guards(), "tab-1");
+
+    try {
+      await expect(tab.dev.logs({ maxEntries: 7, clear: true, timeout: 321 })).resolves.toEqual([
+        {
+          level: "log",
+          text: "hello 42",
+          args: ["hello", 42],
+          timestamp: 123,
+        },
+      ]);
+    } finally {
+      restoreMeta();
+    }
+
+    expect(transport.calls).toHaveLength(1);
+    expect(transport.calls[0]).toMatchObject({
+      method: M.EXECUTE_CDP,
+      params: {
+        tab_id: "tab-1",
+        target: { tabId: "tab-1" },
+        method: "Runtime.evaluate",
+        commandParams: {
+          awaitPromise: true,
+          returnByValue: true,
+        },
+        ...meta,
+      },
+      timeout: 321,
+    });
+    expect(String(transport.calls[0]!.params.commandParams.expression)).toContain("__obuConsoleLogBuffer");
+    expect(String(transport.calls[0]!.params.commandParams.expression)).toContain("const maxEntries = 7");
+    expect(String(transport.calls[0]!.params.commandParams.expression)).toContain("const clearAfterRead = true");
+  });
+
   it("Tab model-safe helpers cap evaluate, emit screenshots, and snapshot text", async () => {
     const restoreMeta = setRequestMeta();
     const transport = new FakeTransport();

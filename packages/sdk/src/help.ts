@@ -44,7 +44,7 @@ Tab:
   .cua.click() / .dblclick() / .scroll() / .type() / .keypress() / .drag() / .dragPath() / .move() / .download_media() / .get_visible_screenshot()
   .clipboard.readText() / .writeText() / .read() / .write()
   .dom_cua.get_visible_dom({format:"text"}) / .dom_cua.text() -> LLM-readable visible DOM-CUA
-  .dev.cdp(method, params)
+  .dev.cdp(method, params) / .dev.logs({maxEntries?, clear?}) -> page console buffer
   .attach() / .detach()
 
 Locator:
