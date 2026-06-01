@@ -6,6 +6,8 @@ pub mod runtime_descriptor_lifecycle;
 pub mod spawn;
 pub mod stdio_codec;
 
+mod browser_status_summary;
+
 pub use kernel_state::{
     DisplayEntry, ExecRegistry, JsExecResult, KernelState, MAX_DISPLAY_COUNT, TruncationInfo,
 };
@@ -284,11 +286,21 @@ impl JsRuntimeManager {
         let product_error = browser_status_product_error(sdk_bootstrap, &inventory);
         let (verify_hint, doctor_hint) = browser_status_hints(product_error.as_ref());
         let advisories = browser_status_advisories(&inventory);
+        let kernel_lifecycle = self.kernel_lifecycle.lock().await.clone();
+        let kernel_generation = *self.kernel_generation.lock().await;
+        let summary = browser_status_summary::browser_status_summary(
+            sdk_bootstrap,
+            &kernel_lifecycle,
+            kernel_generation,
+            &inventory,
+            product_error.as_ref(),
+        );
         Ok(json!({
+            "summary": summary,
             "sdk_bootstrap": sdk_bootstrap,
             "sdk_bootstrap_detail": sdk_bootstrap_detail,
-            "kernel_lifecycle": self.kernel_lifecycle.lock().await.clone(),
-            "kernel_generation": *self.kernel_generation.lock().await,
+            "kernel_lifecycle": kernel_lifecycle,
+            "kernel_generation": kernel_generation,
             "backends": inventory.backends,
             "diagnostics": inventory.diagnostics,
             "runtime_dir": runtime_dir().to_string_lossy(),

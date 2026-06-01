@@ -783,6 +783,7 @@ impl Dispatcher {
             | methods::TAB_CONTENT_EXPORT
             | methods::TAB_EVALUATE
             | methods::TAB_SNAPSHOT_TEXT
+            | methods::TAB_DEV_EVENTS
             | methods::TAB_URL
             | methods::TAB_TITLE
             | methods::TAB_CLIPBOARD_READ_TEXT
@@ -1320,6 +1321,12 @@ impl Dispatcher {
         params: Value,
     ) -> std::result::Result<Value, ErrorObject> {
         match method {
+            methods::TAB_DEV_EVENTS => self
+                .inner
+                .backend
+                .tab_dev_events_with_context(ctx, params)
+                .await
+                .map_err(host_err_to_rpc),
             methods::TAB_GOTO
             | methods::TAB_RELOAD
             | methods::TAB_BACK

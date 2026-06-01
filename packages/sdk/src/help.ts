@@ -41,10 +41,12 @@ Tab:
   .playwright.elementInfo({x,y}) / .playwright.elementScreenshot({x,y}) -> point-level inspection
   .evaluate(expressionOrFn, {maxJsonBytes?}) -> capped JSON-safe page result
   .snapshotText({maxItems?, maxTextLength?}) -> capped text summary (~20 items/category; prefer domSnapshot on dense/SPA pages)
+  .affordances({maxItems?, maxTextLength?}) -> interactable locator recipes with uniqueness metadata
+  .postconditions.url()/visible()/hidden()/text()/count()/custom() -> explicit action postcondition checks
   .cua.click() / .dblclick() / .scroll() / .type() / .keypress() / .drag() / .dragPath() / .move() / .download_media() / .get_visible_screenshot()
   .clipboard.readText() / .writeText() / .read() / .write()
   .dom_cua.get_visible_dom({format:"text"}) / .dom_cua.text() -> LLM-readable visible DOM-CUA
-  .dev.cdp(method, params) / .dev.logs({maxEntries?, clear?}) -> page console buffer
+  .dev.cdp(method, params) / .dev.events({methods?, maxEntries?, clear?}) / .dev.logs({maxEntries?, clear?}) -> host/page dev diagnostics
   .attach() / .detach()
 
 Locator:
@@ -54,7 +56,7 @@ Locator:
   .all() -> Locator[] with batched collection reads for text and attributes
   .selectOption() / .check() / .uncheck() / .setChecked() / .screenshot() -> Image / .download_media()
   .getByRole() / .getByText() / .getByLabel() / .getByPlaceholder() / .getByTestId()
-  .first() / .last() / .nth(i) / .and() / .or() / .filter({has, hasText}) / .locator(sub)
+  .first() / .last() / .nth(i) only after count() or scoped evidence / .and() / .or() / .filter({has, hasText}) / .locator(sub)
   .frameLocator(sel)
 
 display(value): calls the kernel-locked display global.

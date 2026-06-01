@@ -30,8 +30,17 @@ declare function builderResult(): {
       expression: string;
       matchCount: number;
       unique: boolean;
+      evidence: string;
       ambiguity?: string;
     };
+    locatorRecipes?: {
+      kind: string;
+      expression: string;
+      matchCount: number;
+      unique: boolean;
+      evidence: string;
+      ambiguity?: string;
+    }[];
   }[];
   focus: {
     tag: string;
@@ -197,7 +206,7 @@ describe("snapshotTextExpression", () => {
 
     const r = run(2, 120);
 
-    expect(r.interactables).toEqual([
+    expect(r.interactables).toMatchObject([
       {
         role: "button",
         name: "Save",
@@ -246,6 +255,7 @@ describe("snapshotTextExpression", () => {
       expression: 'tab.getByRole("button", { name: "Save", exact: true })',
       matchCount: 2,
       unique: false,
+      evidence: "role/name",
       ambiguity: "2 interactables share role/name; scope to a container or use a stronger attribute before acting",
     });
   });
@@ -263,18 +273,21 @@ describe("snapshotTextExpression", () => {
       expression: 'tab.getByRole("button", { name: "Save", exact: true })',
       matchCount: 1,
       unique: true,
+      evidence: "role/name",
     });
     expect(r.interactables[1].locatorHint).toEqual({
       kind: "role",
       expression: 'tab.getByRole("button", { name: "Save draft", exact: true })',
       matchCount: 1,
       unique: true,
+      evidence: "role/name",
     });
     expect(r.interactables[2].locatorHint).toEqual({
       kind: "role",
       expression: 'tab.getByRole("button", { name: "save", exact: true })',
       matchCount: 1,
       unique: true,
+      evidence: "role/name",
     });
   });
 
@@ -334,5 +347,44 @@ describe("snapshotTextExpression", () => {
         unique: true,
       },
     });
+  });
+
+  it("returns locator recipes with uniqueness metadata", () => {
+    document.body.innerHTML = `
+      <main>
+        <button id="save" data-testid="save-button">Save</button>
+        <button>Save</button>
+        <label for="email">Email</label><input id="email" />
+      </main>
+    `;
+
+    const r = run();
+    const save = r.interactables.find((item) => item.id === "save")!;
+
+    expect(save.locatorRecipes).toEqual([
+      {
+        kind: "role",
+        expression: 'tab.getByRole("button", { name: "Save", exact: true })',
+        matchCount: 2,
+        unique: false,
+        evidence: "role/name",
+        ambiguity: "2 interactables share role/name; scope to a container or use a stronger attribute before acting",
+      },
+      {
+        kind: "testid",
+        expression: 'tab.getByTestId("save-button")',
+        matchCount: 1,
+        unique: true,
+        evidence: "data-testid",
+      },
+      {
+        kind: "css",
+        expression: 'tab.locator("#save")',
+        matchCount: 1,
+        unique: true,
+        evidence: "id",
+      },
+    ]);
+    expect(save.locatorHint).toEqual(save.locatorRecipes?.[1]);
   });
 });

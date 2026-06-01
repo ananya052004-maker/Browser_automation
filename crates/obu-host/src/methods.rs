@@ -106,6 +106,7 @@ pub const TAB_WAIT_FOR_LOAD_STATE: &str = "tab_wait_for_load_state";
 pub const TAB_CONTENT_EXPORT: &str = "tab_content_export";
 pub const TAB_EVALUATE: &str = "tab_evaluate";
 pub const TAB_SNAPSHOT_TEXT: &str = "tab_snapshot_text";
+pub const TAB_DEV_EVENTS: &str = "tab_dev_events";
 pub const TAB_URL: &str = "tab_url";
 pub const TAB_TITLE: &str = "tab_title";
 
@@ -199,6 +200,7 @@ pub const ALL_INBOUND_METHODS: &[&str] = &[
     TAB_CONTENT_EXPORT,
     TAB_EVALUATE,
     TAB_SNAPSHOT_TEXT,
+    TAB_DEV_EVENTS,
     TAB_URL,
     TAB_TITLE,
 ];
@@ -650,6 +652,11 @@ pub const BACKEND_METHOD_SUPPORT: &[(&str, BackendMethodSupport, BackendMethodSu
     ),
     (
         TAB_SNAPSHOT_TEXT,
+        BackendMethodSupport::Implemented,
+        BackendMethodSupport::Implemented,
+    ),
+    (
+        TAB_DEV_EVENTS,
         BackendMethodSupport::Implemented,
         BackendMethodSupport::Implemented,
     ),

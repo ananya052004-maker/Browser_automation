@@ -10,6 +10,7 @@ pub mod cli;
 pub mod coordinate_space;
 pub mod diagnostics;
 pub mod dispatcher;
+pub mod dev_events;
 pub mod error;
 pub mod methods;
 pub mod native_messaging;

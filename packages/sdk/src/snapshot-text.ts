@@ -209,6 +209,21 @@ export function snapshotTextExpression(maxItems: number, maxTextLength: number):
     return Boolean(roleOf(el) || interactableName(el));
   });
   const quote = (value) => JSON.stringify(String(value || ""));
+  const cssEscape = (value) => {
+    if (window.CSS && typeof window.CSS.escape === "function") return window.CSS.escape(value);
+    return String(value).replace(/["\\\\#.;:[\\]()>+~*^$|=,\\s]/g, "\\\\$&");
+  };
+  const countSelector = (selector) => {
+    try { return document.querySelectorAll(selector).length; } catch { return 0; }
+  };
+  const recipe = (kind, expression, matchCount, evidence, ambiguity) => ({
+    kind,
+    expression,
+    matchCount,
+    unique: matchCount === 1,
+    evidence,
+    ...(ambiguity ? { ambiguity } : {}),
+  });
   const roleNameKey = (role, name) => role && name ? role + "::obu::" + name : "";
   const roleNameCounts = new Map();
   for (const el of interactableEls) {
@@ -219,23 +234,36 @@ export function snapshotTextExpression(maxItems: number, maxTextLength: number):
     if (!key) continue;
     roleNameCounts.set(key, (roleNameCounts.get(key) || 0) + 1);
   }
-  const locatorHintFor = (el) => {
+  const locatorRecipesFor = (el) => {
+    const recipes = [];
     const role = roleOf(el);
     const name = locatorNameFor(el);
-    if (name.length > ${maxTextLength}) return null;
-    const key = roleNameKey(role, name);
-    if (!key) return null;
-    const matchCount = roleNameCounts.get(key) || 0;
-    return {
-      kind: "role",
-      expression: "tab.getByRole(" + quote(role) + ", { name: " + quote(name) + ", exact: true })",
-      matchCount,
-      unique: matchCount === 1,
-      ...(matchCount > 1
-        ? { ambiguity: matchCount + " interactables share role/name; scope to a container or use a stronger attribute before acting" }
-        : {}),
-    };
+    if (name.length <= ${maxTextLength}) {
+      const key = roleNameKey(role, name);
+      const matchCount = key ? (roleNameCounts.get(key) || 0) : 0;
+      if (key) {
+        recipes.push(recipe(
+          "role",
+          "tab.getByRole(" + quote(role) + ", { name: " + quote(name) + ", exact: true })",
+          matchCount,
+          "role/name",
+          matchCount > 1 ? matchCount + " interactables share role/name; scope to a container or use a stronger attribute before acting" : undefined
+        ));
+      }
+    }
+    const testId = normalizeText(el.getAttribute("data-testid"));
+    if (testId) {
+      const selector = "[data-testid=" + quote(testId) + "]";
+      recipes.push(recipe("testid", "tab.getByTestId(" + quote(testId) + ")", countSelector(selector), "data-testid"));
+    }
+    if (el.id) {
+      const selector = "#" + cssEscape(el.id);
+      recipes.push(recipe("css", "tab.locator(" + quote(selector) + ")", countSelector(selector), "id"));
+    }
+    return recipes;
   };
+  const preferredLocatorRecipe = (recipes) =>
+    recipes.find((row) => row.unique) || recipes[0];
 
   const headings = cap(headingEls).map((el) => ({ level: Number(el.tagName.slice(1)), text: cleanText(el) }));
   const buttons = cap(buttonEls).map((el) => cleanText(el) || text(el.value) || text(el.getAttribute("aria-label"))).filter(Boolean);
@@ -250,7 +278,8 @@ export function snapshotTextExpression(maxItems: number, maxTextLength: number):
     visible: isVisible(el),
   }));
   const interactables = cap(interactableEls).map((el) => {
-    const locatorHint = locatorHintFor(el);
+    const locatorRecipes = locatorRecipesFor(el);
+    const locatorHint = preferredLocatorRecipe(locatorRecipes);
     return {
       role: roleOf(el),
       name: interactableName(el),
@@ -260,7 +289,7 @@ export function snapshotTextExpression(maxItems: number, maxTextLength: number):
       ...(el.href ? { href: text(el.href) } : {}),
       enabled: isEnabled(el),
       visible: isVisible(el),
-      ...(locatorHint ? { locatorHint } : {}),
+      ...(locatorRecipes.length ? { locatorRecipes, locatorHint } : {}),
     };
   });
 

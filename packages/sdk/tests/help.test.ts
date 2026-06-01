@@ -27,8 +27,12 @@ describe("help", () => {
     expect(help).toContain(".dom_cua.text()");
     expect(help).toContain(".cua.click");
     expect(help).toContain(".dev.cdp");
+    expect(help).toContain(".dev.events");
+    expect(help).toContain(".affordances");
+    expect(help).toContain(".postconditions.url()");
     expect(help).toContain(".getByRole");
     expect(help).toContain(".all() -> Locator[] with batched collection reads");
+    expect(help).toContain("only after count() or scoped evidence");
     expect(help).toContain("display(value)");
   });
 

@@ -12,6 +12,7 @@ use tokio::sync::{Mutex, broadcast};
 
 use crate::backends::webext::oopif::WebextOopifSessionMap;
 use crate::backends::{BackendKind, BackendRequestContext, BrowserBackend, cdp::ensure_injected};
+use crate::dev_events::{DevEvent, DevEventBuffer, DevEventQuery};
 use crate::error::{HostError, Result};
 use crate::methods;
 use crate::ops::clipboard as clipboard_ops;
@@ -46,6 +47,7 @@ pub struct WebExtensionBackend {
     extension_diagnostics: Arc<StdMutex<Value>>,
     visible_dom_nodes: Arc<Mutex<VisibleDomSnapshotStore>>,
     virtual_clipboard_scripts: Arc<Mutex<HashMap<String, String>>>,
+    dev_events: Arc<DevEventBuffer>,
     /// OOPIF (out-of-process iframe) child sessions, populated from the
     /// `Target.attachedToTarget` events the extension forwards as `onCDPEvent`.
     /// A `std` mutex (not `tokio`) because the ingress — `handle_notification` —
@@ -69,6 +71,7 @@ impl WebExtensionBackend {
             extension_diagnostics: Arc::new(StdMutex::new(json!({}))),
             visible_dom_nodes: Arc::new(Mutex::new(VisibleDomSnapshotStore::default())),
             virtual_clipboard_scripts: Arc::new(Mutex::new(HashMap::new())),
+            dev_events: Arc::new(DevEventBuffer::default()),
             oopif_sessions: Arc::new(StdMutex::new(WebextOopifSessionMap::default())),
         }
     }
@@ -144,6 +147,25 @@ impl WebExtensionBackend {
         {
             map.apply_cdp_event(&params);
         }
+        if method == "onCDPEvent"
+            && let Some(tab_id) = notification_tab_id(&params)
+        {
+            let session_id = params.get("session_id").and_then(Value::as_str);
+            let cdp_method = params
+                .get("method")
+                .and_then(Value::as_str)
+                .unwrap_or("onCDPEvent");
+            let event_params = params.get("params").cloned().unwrap_or(Value::Null);
+            self.dev_events
+                .record(tab_id, session_id, cdp_method, event_params);
+        }
+        if method == "onDownloadChange"
+            && let Some(tab_id) = notification_tab_id(&params)
+        {
+            let session_id = params.get("session_id").and_then(Value::as_str);
+            self.dev_events
+                .record(tab_id, session_id, "onDownloadChange", params.clone());
+        }
         let _ = self.event_tx.send(ExtensionNotification { method, params });
     }
 
@@ -160,6 +182,23 @@ impl WebExtensionBackend {
     /// Recent handled native-dialog traces.
     pub(crate) fn dialog_traces(&self) -> &DialogTraceStore {
         &self.dialog_traces
+    }
+
+    fn dev_events_for_tab(
+        &self,
+        tab_id: &str,
+        session_id: Option<&str>,
+        methods: &[&str],
+        max_entries: usize,
+        clear: bool,
+    ) -> Vec<DevEvent> {
+        self.dev_events.query(DevEventQuery {
+            tab_id,
+            session_id,
+            methods,
+            max_entries,
+            clear,
+        })
     }
 
     fn update_extension_diagnostics(&self, params: Value) {
@@ -768,6 +807,19 @@ impl BrowserBackend for WebExtensionBackend {
         }
         Ok(result)
     }
+
+    async fn tab_dev_events_with_context(
+        &self,
+        ctx: &BackendRequestContext,
+        params: Value,
+    ) -> Result<Value> {
+        self.ensure_active()?;
+        let session_id = require_session_id_context(ctx, "tab_dev_events")?;
+        let (tab_id, methods, max_entries, clear) = dev_event_query_parts(&params)?;
+        validate_event_query_tab_if_recorded(self, ctx, tab_id)?;
+        let rows = self.dev_events_for_tab(tab_id, Some(session_id), &methods, max_entries, clear);
+        serde_json::to_value(rows).map_err(|error| HostError::Protocol(error.to_string()))
+    }
 }
 
 fn record_session_context(
@@ -1051,6 +1103,23 @@ fn validate_active_tab_if_recorded(
     Ok(())
 }
 
+fn validate_event_query_tab_if_recorded(
+    backend: &WebExtensionBackend,
+    ctx: &BackendRequestContext,
+    tab_id: &str,
+) -> Result<()> {
+    let Some(record) = backend.registry().get(&TabId::new(tab_id))? else {
+        return Ok(());
+    };
+    if record.session_id.as_deref() != ctx.session_id.as_deref() {
+        return Err(HostError::Protocol(format!(
+            "tab {tab_id} does not belong to session {}",
+            ctx.session_id.as_deref().unwrap_or_default()
+        )));
+    }
+    Ok(())
+}
+
 fn params_tab_id(params: &Value) -> Option<String> {
     params
         .get("tab_id")
@@ -1070,6 +1139,21 @@ fn params_tab_id(params: &Value) -> Option<String> {
                     _ => None,
                 })
         })
+}
+
+fn notification_tab_id(params: &Value) -> Option<String> {
+    let value = params
+        .get("source")
+        .and_then(|source| source.get("tabId"))
+        .or_else(|| params.get("tab_id"))
+        .or_else(|| params.get("tabId"))?;
+    if let Some(id) = value.as_i64() {
+        return Some(id.to_string());
+    }
+    value
+        .as_str()
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
 }
 
 fn tab_status_label(status: &TabStatus) -> &'static str {
@@ -2815,6 +2899,33 @@ fn required_str<'a>(params: &'a Value, key: &str) -> Result<&'a str> {
         .ok_or_else(|| HostError::Protocol(format!("missing {key}")))
 }
 
+fn require_session_id_context<'a>(
+    ctx: &'a BackendRequestContext,
+    method: &str,
+) -> Result<&'a str> {
+    ctx.session_id
+        .as_deref()
+        .filter(|session_id| !session_id.is_empty())
+        .ok_or_else(|| HostError::Protocol(format!("{method} requires session_id")))
+}
+
+fn dev_event_query_parts(params: &Value) -> Result<(&str, Vec<&str>, usize, bool)> {
+    let tab_id = required_str(params, "tab_id")?;
+    let methods = params
+        .get("methods")
+        .and_then(Value::as_array)
+        .map(|rows| rows.iter().filter_map(Value::as_str).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let max_entries = params
+        .get("maxEntries")
+        .or_else(|| params.get("max_entries"))
+        .and_then(Value::as_u64)
+        .unwrap_or(100)
+        .min(500) as usize;
+    let clear = params.get("clear").and_then(Value::as_bool).unwrap_or(false);
+    Ok((tab_id, methods, max_entries, clear))
+}
+
 fn required_f64(params: &Value, key: &str) -> Result<f64> {
     params
         .get(key)
@@ -3267,4 +3378,87 @@ fn normalize_tab_array(object: &mut Map<String, Value>, source: &str, dest: &str
         .collect::<Result<Vec<_>>>()?;
     object.insert(dest.into(), Value::Array(normalized));
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn webext_notifications_buffer_tab_dev_events() {
+        let backend = WebExtensionBackend::new("chrome", json!({}));
+        backend.handle_notification(
+            "onCDPEvent",
+            json!({
+                "session_id": "session-a",
+                "source": { "tabId": 42 },
+                "method": "Runtime.consoleAPICalled",
+                "params": { "type": "log", "args": [] }
+            }),
+        );
+
+        let rows = backend.dev_events_for_tab(
+            "42",
+            Some("session-a"),
+            &["Runtime.consoleAPICalled"],
+            10,
+            false,
+        );
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].tab_id, "42");
+        assert_eq!(rows[0].method, "Runtime.consoleAPICalled");
+        assert_eq!(rows[0].params["type"], json!("log"));
+    }
+
+    #[test]
+    fn webext_download_notifications_use_source_tab_id() {
+        let backend = WebExtensionBackend::new("chrome", json!({}));
+        backend.handle_notification(
+            "onDownloadChange",
+            json!({
+                "session_id": "session-a",
+                "source": { "tabId": 42 },
+                "id": "download-1",
+                "status": "started"
+            }),
+        );
+
+        let rows =
+            backend.dev_events_for_tab("42", Some("session-a"), &["onDownloadChange"], 10, false);
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].method, "onDownloadChange");
+        assert_eq!(rows[0].params["id"], json!("download-1"));
+    }
+
+    #[tokio::test]
+    async fn webext_tab_dev_events_requires_session_but_not_turn() {
+        let backend = WebExtensionBackend::new("chrome", json!({}));
+        backend.handle_notification(
+            "onCDPEvent",
+            json!({
+                "session_id": "session-a",
+                "source": { "tabId": 42 },
+                "method": "Runtime.consoleAPICalled",
+                "params": { "type": "log", "args": [] }
+            }),
+        );
+        let ctx = BackendRequestContext {
+            session_id: Some("session-a".into()),
+            turn_id: None,
+            client_timeout_ms: None,
+            trusted_kernel_generation: None,
+        };
+
+        let rows = backend
+            .tab_dev_events_with_context(
+                &ctx,
+                json!({ "tab_id": "42", "methods": ["Runtime.consoleAPICalled"] }),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(rows.as_array().unwrap().len(), 1);
+    }
 }

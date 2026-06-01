@@ -240,6 +240,9 @@ async fn mcp_stdio_lists_tools_and_executes_js() {
     assert!(status["result"]["structuredContent"]["sdk_bootstrap"].is_string());
     assert!(status["result"]["structuredContent"]["backends"].is_array());
     let structured = &status["result"]["structuredContent"];
+    assert!(structured["summary"].is_object());
+    assert!(structured["kernel_lifecycle"].is_object());
+    assert!(structured["kernel_generation"].is_number());
     assert!(structured["advisories"].is_array());
     let verify_hint = structured["verify_hint"].as_str().unwrap();
     let doctor_hint = structured["doctor_hint"].as_str().unwrap();

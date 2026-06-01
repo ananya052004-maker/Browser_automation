@@ -53,3 +53,5 @@ export const ERR_DIALOG_REQUIRES_DECISION = -1203;
  * retryable site/network failure from a protocol error.
  */
 export const ERR_NAVIGATION_FAILED = -1204;
+/** A browser action completed, but an explicit SDK postcondition did not become true. */
+export const ERR_POSTCONDITION_FAILED = -1205;

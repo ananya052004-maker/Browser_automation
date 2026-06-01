@@ -138,14 +138,24 @@ static JS_OUTPUT_SCHEMA: LazyLock<Arc<rmcp::model::JsonObject>> = LazyLock::new(
 static BROWSER_STATUS_OUTPUT_SCHEMA: LazyLock<Arc<rmcp::model::JsonObject>> = LazyLock::new(|| {
     Arc::new(schema_object(json!({
         "type": "object",
-        "required": ["sdk_bootstrap", "backends", "diagnostics", "runtime_dir", "verify_hint", "doctor_hint", "product_error", "advisories"],
+        "required": ["summary", "sdk_bootstrap", "kernel_lifecycle", "kernel_generation", "backends", "diagnostics", "runtime_dir", "verify_hint", "doctor_hint", "product_error", "advisories"],
         "properties": {
+            "summary": {
+                "type": "object",
+                "description": "Compact actionable readiness summary for agents."
+            },
             "sdk_bootstrap": {
                 "type": "string",
                 "enum": ["available", "missing", "untrusted"]
             },
             "sdk_bootstrap_detail": {
                 "type": "object"
+            },
+            "kernel_lifecycle": {
+                "type": "object"
+            },
+            "kernel_generation": {
+                "type": "number"
             },
             "backends": {
                 "type": "array"

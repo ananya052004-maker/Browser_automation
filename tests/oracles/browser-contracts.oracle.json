@@ -25,6 +25,7 @@
     "tab_reload",
     "tab_close",
     "tab_wait_for_load_state",
+    "tab_dev_events",
     "tab_url"
   ],
   "requiredProductErrors": [
@@ -38,7 +39,8 @@
     "disallowed_command",
     "missing_handle",
     "dialog_requires_decision",
-    "transport_closed"
+    "transport_closed",
+    "postcondition_failed"
   ],
   "requiredRpcErrorConstants": [
     "ERR_TIMEOUT",
@@ -48,7 +50,8 @@
     "ERR_CMD_DISALLOWED",
     "ERR_PAGE_CLOSED",
     "ERR_TAB_NOT_ATTACHED",
-    "ERR_DIALOG_REQUIRES_DECISION"
+    "ERR_DIALOG_REQUIRES_DECISION",
+    "ERR_POSTCONDITION_FAILED"
   ],
   "goldenFixtures": [
     {

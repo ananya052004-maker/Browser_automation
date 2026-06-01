@@ -1,4 +1,5 @@
 import { withSessionMeta } from "./session-meta.js";
+import { ERR_NOT_IMPLEMENTED, ObuError } from "./errors.js";
 import { Guards, type CommandabilityGuard } from "./guards.js";
 import type { Transport } from "./wire/transport.js";
 import * as M from "./wire/methods.js";
@@ -12,11 +13,36 @@ export type TabDevLogEntry = {
   timestamp: number;
 };
 
+export type TabDevEvent = {
+  sequence: number;
+  timestamp: number;
+  tabId: string;
+  tab_id: string;
+  sessionId?: string;
+  session_id?: string;
+  method: string;
+  params: unknown;
+  paramsTruncated: boolean;
+  params_truncated: boolean;
+};
+
+export type TabDevEventsOptions = {
+  /** Event methods to include. Empty/omitted means all methods. */
+  methods?: string[];
+  /** Maximum recent entries to return. Defaults to 100. */
+  maxEntries?: number;
+  /** Clear matching host-buffered rows after reading. Defaults to false. */
+  clear?: boolean;
+  timeout?: number;
+};
+
 export type TabDevLogsOptions = {
   /** Maximum recent entries to return. Defaults to 100. */
   maxEntries?: number;
   /** Clear the page buffer after reading. Defaults to false. */
   clear?: boolean;
+  /** Read from host event buffer, page wrapper, or host then page fallback. Defaults to "auto". */
+  source?: "auto" | "host" | "page";
   timeout?: number;
 };
 
@@ -69,6 +95,41 @@ export class TabDev {
   }
 
   async logs(opts: TabDevLogsOptions = {}): Promise<TabDevLogEntry[]> {
+    const source = opts.source ?? "auto";
+    if (source === "host" || source === "auto") {
+      try {
+        const eventOpts: TabDevEventsOptions = {
+          methods: ["Runtime.consoleAPICalled", "Log.entryAdded"],
+        };
+        if (opts.maxEntries !== undefined) eventOpts.maxEntries = opts.maxEntries;
+        if (opts.clear !== undefined) eventOpts.clear = opts.clear;
+        if (opts.timeout !== undefined) eventOpts.timeout = opts.timeout;
+        const rows = await this.events(eventOpts);
+        return normalizeHostLogEvents(rows);
+      } catch (error) {
+        if (source === "host" || !isHostDevEventsUnavailable(error)) throw error;
+      }
+    }
+    return await this.pageConsoleLogs(opts);
+  }
+
+  async events(opts: TabDevEventsOptions = {}): Promise<TabDevEvent[]> {
+    const maxEntries = positiveInt(opts.maxEntries, 100);
+    const params: Record<string, unknown> = {
+      tab_id: this.tabId,
+      maxEntries,
+      clear: opts.clear === true,
+    };
+    if (opts.methods !== undefined) params.methods = opts.methods;
+    const rows = await this.transport.sendRequest<unknown[]>(
+      M.TAB_DEV_EVENTS,
+      withSessionMeta(params),
+      opts.timeout,
+    );
+    return normalizeDevEvents(rows);
+  }
+
+  private async pageConsoleLogs(opts: TabDevLogsOptions): Promise<TabDevLogEntry[]> {
     const maxEntries = positiveInt(opts.maxEntries, 100);
     const clearAfterRead = opts.clear === true;
     const cdpOpts: { timeout?: number } = {};
@@ -114,6 +175,139 @@ function normalizeLogEntries(value: unknown): TabDevLogEntry[] {
     });
   }
   return rows;
+}
+
+function normalizeDevEvents(value: unknown): TabDevEvent[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((row) => {
+    if (!row || typeof row !== "object") return [];
+    const record = row as Record<string, unknown>;
+    const method = typeof record.method === "string" ? record.method : undefined;
+    const tabId = typeof record.tab_id === "string"
+      ? record.tab_id
+      : typeof record.tabId === "string"
+        ? record.tabId
+        : undefined;
+    if (!method || !tabId) return [];
+    const paramsTruncated = record.params_truncated === true || record.paramsTruncated === true;
+    const out: TabDevEvent = {
+      sequence: typeof record.sequence === "number" ? record.sequence : 0,
+      timestamp: typeof record.timestamp === "number" ? record.timestamp : 0,
+      tabId,
+      tab_id: tabId,
+      method,
+      params: record.params,
+      paramsTruncated,
+      params_truncated: paramsTruncated,
+    };
+    const sessionId = typeof record.session_id === "string"
+      ? record.session_id
+      : typeof record.sessionId === "string"
+        ? record.sessionId
+        : undefined;
+    if (sessionId) {
+      out.sessionId = sessionId;
+      out.session_id = sessionId;
+    }
+    return [out];
+  });
+}
+
+function normalizeHostLogEvents(events: TabDevEvent[]): TabDevLogEntry[] {
+  return events.flatMap((event) => {
+    if (event.method === "Runtime.consoleAPICalled") return [consoleApiCalledToLogEntry(event)];
+    if (event.method === "Log.entryAdded") return [logEntryAddedToLogEntry(event)];
+    return [];
+  });
+}
+
+function consoleApiCalledToLogEntry(event: TabDevEvent): TabDevLogEntry {
+  const params = asRecord(event.params);
+  const type = typeof params?.type === "string" ? params.type : "log";
+  const args = Array.isArray(params?.args) ? params.args.map(remoteObjectToValue) : [];
+  return {
+    level: consoleTypeToLogLevel(type),
+    text: truncateText(args.map(logText).join(" "), 2000),
+    args,
+    timestamp: event.timestamp,
+  };
+}
+
+function logEntryAddedToLogEntry(event: TabDevEvent): TabDevLogEntry {
+  const params = asRecord(event.params);
+  const entry = asRecord(params?.entry);
+  const level = typeof entry?.level === "string" ? entry.level : "log";
+  const text = typeof entry?.text === "string" ? entry.text : "";
+  return {
+    level: consoleTypeToLogLevel(level),
+    text: truncateText(text, 2000),
+    args: [],
+    timestamp: typeof entry?.timestamp === "number" ? entry.timestamp : event.timestamp,
+  };
+}
+
+function remoteObjectToValue(value: unknown): unknown {
+  const record = asRecord(value);
+  if (!record) return value;
+  if ("value" in record) return record.value;
+  if (typeof record.unserializableValue === "string") {
+    return { type: record.unserializableValue };
+  }
+  if (typeof record.description === "string") return truncateText(record.description, 1000);
+  if (typeof record.type === "string") {
+    return {
+      type: record.type,
+      ...(typeof record.subtype === "string" ? { subtype: record.subtype } : {}),
+    };
+  }
+  return value;
+}
+
+function consoleTypeToLogLevel(value: string): TabDevLogLevel {
+  if (value === "warning") return "warn";
+  if (isLogLevel(value)) return value;
+  return "log";
+}
+
+function logText(value: unknown): string {
+  if (typeof value === "string") return value;
+  const record = asRecord(value);
+  if (record?.type === "undefined") return "undefined";
+  try {
+    const json = JSON.stringify(value);
+    if (json !== undefined) return truncateText(json, 1000);
+  } catch {
+    // Fall through to String conversion.
+  }
+  try {
+    return truncateText(String(value), 1000);
+  } catch {
+    return "[unprintable]";
+  }
+}
+
+function truncateText(value: string, maxChars: number): string {
+  if (value.length <= maxChars) return value;
+  return `${value.slice(0, maxChars)}...[truncated ${value.length - maxChars} chars]`;
+}
+
+function isHostDevEventsUnavailable(error: unknown): boolean {
+  if (!(error instanceof ObuError)) return false;
+  const data = asRecord(error.data);
+  const method = typeof data?.method === "string" ? data.method : undefined;
+  const dataCode = typeof data?.code === "string" ? data.code : undefined;
+  if (method === M.TAB_DEV_EVENTS && (error.code === ERR_NOT_IMPLEMENTED || dataCode === "unsupported_backend_capability")) {
+    return true;
+  }
+  if (error.code === ERR_NOT_IMPLEMENTED && error.message.includes(M.TAB_DEV_EVENTS)) return true;
+  if (error.code === -32601 && error.message.includes(M.TAB_DEV_EVENTS)) return true;
+  return false;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
 }
 
 function isLogLevel(value: unknown): value is TabDevLogLevel {

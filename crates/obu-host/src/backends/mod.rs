@@ -397,6 +397,15 @@ pub trait BrowserBackend: Send + Sync {
     ) -> Result<Value> {
         self.tab_command(method, params).await
     }
+
+    /// Query host-buffered dev events for a tab.
+    async fn tab_dev_events_with_context(
+        &self,
+        _ctx: &BackendRequestContext,
+        _params: Value,
+    ) -> Result<Value> {
+        Err(HostError::NotImplemented("tab_dev_events".into()))
+    }
 }
 
 /// Lifecycle and backend metadata operations used by the dispatcher.

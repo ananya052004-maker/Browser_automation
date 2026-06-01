@@ -1712,7 +1712,7 @@ describe("SDK wire-shape contracts", () => {
     const tab = new Tab(asTransport(transport), new Guards(), "tab-1");
 
     try {
-      await expect(tab.dev.logs({ maxEntries: 7, clear: true, timeout: 321 })).resolves.toEqual([
+      await expect(tab.dev.logs({ source: "page", maxEntries: 7, clear: true, timeout: 321 })).resolves.toEqual([
         {
           level: "log",
           text: "hello 42",

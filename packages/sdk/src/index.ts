@@ -43,6 +43,7 @@ export {
   ERR_CONFLICT,
   ERR_DIALOG_REQUIRES_DECISION,
   ERR_DISALLOWED,
+  ERR_POSTCONDITION_FAILED,
   ERR_IO,
   ERR_NO_BACKEND,
   ERR_NOT_FOUND,
@@ -113,6 +114,7 @@ export type {
   ObservationActionFamily,
   ObservationLifecycle,
   ObservationSectionStatus,
+  TabAffordancesResult,
   TabEvaluateOptions,
   TabMetadata,
   TabNavigationWaitOptions,
@@ -123,10 +125,17 @@ export type {
   TabRuntimeContext,
   TabSnapshotInteractable,
   TabSnapshotLocatorHint,
+  TabSnapshotLocatorRecipe,
   TabSnapshotTextOptions,
   TabSnapshotTextResult,
 } from "./tab.js";
 export type { SnapshotTextMeta, SnapshotCategoryMeta } from "./snapshot-text.js";
+export { PostconditionFailedError, TabPostconditions } from "./tab-postconditions.js";
+export type {
+  CustomPostconditionResult,
+  PostconditionOptions,
+  PostconditionPass,
+} from "./tab-postconditions.js";
 export { TabClipboard } from "./tab-clipboard.js";
 export { TabContent } from "./tab-content.js";
 export type { ContentExportOptions } from "./tab-content.js";
@@ -145,7 +154,13 @@ export type {
 export { TabRead } from "./tab-read.js";
 export type { TabReadDeps, ExtractTableInput, ExtractTableResult, EvaluateTruncationSummary } from "./tab-read.js";
 export { TabDev } from "./tab-dev.js";
-export type { TabDevLogEntry, TabDevLogLevel, TabDevLogsOptions } from "./tab-dev.js";
+export type {
+  TabDevEvent,
+  TabDevEventsOptions,
+  TabDevLogEntry,
+  TabDevLogLevel,
+  TabDevLogsOptions,
+} from "./tab-dev.js";
 export { TabDomCua } from "./tab-dom-cua.js";
 export type { DomCuaActionOptions, DomCuaActionResult, DomCuaNode, DomCuaObservationOptions, DomCuaSnapshot } from "./tab-dom-cua.js";
 export { TabPlaywright } from "./tab-playwright.js";

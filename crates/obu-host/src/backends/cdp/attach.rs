@@ -34,8 +34,9 @@ pub async fn attach(backend: &CdpBackend, tab_id: &str) -> Result<()> {
         record.cdp_session_id = Some(session_id.clone());
     })?;
 
-    // Keep this as the only eager attach-time domain command; Page/Runtime/DOM
-    // domains are enabled lazily.
+    // Arm the domains that must be active from attach time. Page/DOM remain lazy,
+    // but Runtime/Log need to be enabled before console/log events fire so
+    // host-backed diagnostics are not silently empty.
     backend
         .transport()
         .send_command(
@@ -54,6 +55,20 @@ pub async fn attach(backend: &CdpBackend, tab_id: &str) -> Result<()> {
         )
         .await
         .map_err(HostError::from)?;
+    for method in ["Runtime.enable", "Log.enable"] {
+        if let Err(error) = backend
+            .transport()
+            .send_command(method, json!({}), Some(&session_id))
+            .await
+            .map_err(HostError::from)
+        {
+            tracing::warn!(
+                method,
+                ?error,
+                "CDP dev event domain enable failed; host log buffer may be incomplete"
+            );
+        }
+    }
     Ok(())
 }
 

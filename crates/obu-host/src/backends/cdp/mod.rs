@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
 use crate::backends::{BackendKind, BackendRequestContext, BrowserBackend};
+use crate::dev_events::{DevEvent, DevEventBuffer, DevEventQuery};
 use crate::error::{HostError, Result};
 use crate::ops::dialogs::DialogTraceStore;
 use crate::ops::dom_cua::VisibleDomSnapshotStore;
@@ -35,6 +36,7 @@ pub(crate) mod test_support;
 pub struct CdpBackend {
     transport: Arc<transport::CdpTransport>,
     registry: Arc<ServiceRegistry>,
+    dev_events: Arc<DevEventBuffer>,
     dialog_traces: DialogTraceStore,
     download_dir: tempfile::TempDir,
     visible_dom_nodes: Arc<Mutex<VisibleDomSnapshotStore>>,
@@ -64,6 +66,7 @@ impl CdpBackend {
             .await
             .map_err(HostError::from)?;
         let oopif_sessions = Arc::new(Mutex::new(oopif::OopifSessionMap::default()));
+        let dev_events = Arc::new(DevEventBuffer::default());
         {
             let oopif_sessions = oopif_sessions.clone();
             let consumer_transport = transport.clone();
@@ -110,6 +113,26 @@ impl CdpBackend {
             });
         }
         {
+            let dev_events = dev_events.clone();
+            let registry = registry.clone();
+            let mut events = transport.subscribe_events();
+            tokio::spawn(async move {
+                loop {
+                    match events.recv().await {
+                        Ok(event) => record_cdp_dev_event(&dev_events, &registry, event),
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(dropped)) => {
+                            tracing::warn!(
+                                dropped,
+                                "CDP dev event consumer lagged; diagnostics may be incomplete"
+                            );
+                            record_cdp_dev_event_lag(&dev_events, dropped);
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    }
+                }
+            });
+        }
+        {
             // Re-establish sessions whenever the transport reconnects. The
             // transport recovers the socket and bumps its reconnect generation;
             // here we re-attach known tabs by target_id and re-arm auto-attach
@@ -140,6 +163,7 @@ impl CdpBackend {
         Ok(Self {
             transport,
             registry,
+            dev_events,
             dialog_traces: DialogTraceStore::default(),
             download_dir,
             visible_dom_nodes: Arc::new(Mutex::new(VisibleDomSnapshotStore::default())),
@@ -185,6 +209,23 @@ impl CdpBackend {
     /// Recent handled native-dialog traces.
     pub(crate) fn dialog_traces(&self) -> &DialogTraceStore {
         &self.dialog_traces
+    }
+
+    fn dev_events_for_tab(
+        &self,
+        tab_id: &str,
+        session_id: Option<&str>,
+        methods: &[&str],
+        max_entries: usize,
+        clear: bool,
+    ) -> Vec<DevEvent> {
+        self.dev_events.query(DevEventQuery {
+            tab_id,
+            session_id,
+            methods,
+            max_entries,
+            clear,
+        })
     }
 }
 
@@ -468,6 +509,18 @@ impl BrowserBackend for CdpBackend {
         Ok(result)
     }
 
+    async fn tab_dev_events_with_context(
+        &self,
+        ctx: &BackendRequestContext,
+        params: Value,
+    ) -> Result<Value> {
+        let session_id = require_session_id_context(ctx, "tab_dev_events")?;
+        let (tab_id, methods, max_entries, clear) = dev_event_query_parts(&params)?;
+        self.validate_event_query_tab(ctx, tab_id)?;
+        let rows = self.dev_events_for_tab(tab_id, Some(session_id), &methods, max_entries, clear);
+        serde_json::to_value(rows).map_err(|error| HostError::Protocol(error.to_string()))
+    }
+
     async fn cua_command(&self, method: &str, params: Value) -> Result<Value> {
         cua::run(self, method, params).await
     }
@@ -532,6 +585,22 @@ impl CdpBackend {
         Ok(())
     }
 
+    fn validate_event_query_tab(&self, ctx: &BackendRequestContext, tab_id: &str) -> Result<()> {
+        let Some(record) = self
+            .registry()
+            .get(&crate::tab_state::TabId::new(tab_id))?
+        else {
+            return Ok(());
+        };
+        if record.session_id.as_deref() != ctx.session_id.as_deref() {
+            return Err(HostError::Protocol(format!(
+                "tab {tab_id} does not belong to session {}",
+                ctx.session_id.as_deref().unwrap_or_default()
+            )));
+        }
+        Ok(())
+    }
+
     fn remember_tab_id(&self, ctx: &BackendRequestContext, tab_id: Option<&str>) -> Result<()> {
         if let Some(session_id) = ctx.session_id.as_deref()
             && let Some(tab_id) = tab_id
@@ -556,6 +625,71 @@ fn require_session_turn_context<'a>(
         )));
     }
     Ok(session_id)
+}
+
+fn require_session_id_context<'a>(
+    ctx: &'a BackendRequestContext,
+    method: &str,
+) -> Result<&'a str> {
+    ctx.session_id
+        .as_deref()
+        .filter(|session_id| !session_id.is_empty())
+        .ok_or_else(|| HostError::Protocol(format!("{method} requires session_id")))
+}
+
+fn dev_event_query_parts(params: &Value) -> Result<(&str, Vec<&str>, usize, bool)> {
+    let tab_id = required_str(params, "tab_id")?;
+    let methods = params
+        .get("methods")
+        .and_then(Value::as_array)
+        .map(|rows| rows.iter().filter_map(Value::as_str).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let max_entries = params
+        .get("maxEntries")
+        .or_else(|| params.get("max_entries"))
+        .and_then(Value::as_u64)
+        .unwrap_or(100)
+        .min(500) as usize;
+    let clear = params.get("clear").and_then(Value::as_bool).unwrap_or(false);
+    Ok((tab_id, methods, max_entries, clear))
+}
+
+fn required_str<'a>(params: &'a Value, key: &str) -> Result<&'a str> {
+    params
+        .get(key)
+        .and_then(Value::as_str)
+        .ok_or_else(|| HostError::Protocol(format!("missing string param {key}")))
+}
+
+fn record_cdp_dev_event(
+    dev_events: &DevEventBuffer,
+    registry: &ServiceRegistry,
+    event: transport::CdpEvent,
+) {
+    let Some(cdp_session_id) = event.session_id.as_deref() else {
+        return;
+    };
+    let Ok(Some(tab_id)) = registry.tab_id_for_cdp_session(cdp_session_id) else {
+        return;
+    };
+    let session_id = registry
+        .get(&tab_id)
+        .ok()
+        .flatten()
+        .and_then(|record| record.session_id);
+    dev_events.record(tab_id.0, session_id.as_deref(), event.method, event.params);
+}
+
+fn record_cdp_dev_event_lag(dev_events: &DevEventBuffer, dropped: u64) {
+    dev_events.record(
+        crate::dev_events::GLOBAL_DEV_EVENT_TAB_ID,
+        None,
+        "obu.dev_events.lagged",
+        json!({
+            "backend": "cdp",
+            "dropped": dropped
+        }),
+    );
 }
 
 fn tab_id_param(params: &Value) -> Option<String> {
@@ -601,4 +735,73 @@ fn registry_lifecycle_metadata(registry: &ServiceRegistry) -> Value {
         "stale_downloads": counts.stale_downloads,
         "recent_events": recent_lifecycle_events,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backends::cdp::transport::CdpEvent;
+    use crate::dev_events::{DevEventBuffer, DevEventQuery};
+    use crate::tab_state::{TabId, TabOrigin, TabRecord, TabStatus};
+
+    #[test]
+    fn record_cdp_dev_event_resolves_session_to_tab() {
+        let registry = ServiceRegistry::default();
+        registry
+            .insert(TabRecord {
+                id: TabId::new("target-1"),
+                session_id: Some("obu-session".into()),
+                target_id: "target-1".into(),
+                url: "https://example.test".into(),
+                title: "Example".into(),
+                origin: TabOrigin::Agent,
+                status: TabStatus::Active,
+                attached: true,
+                cdp_session_id: Some("cdp-session-1".into()),
+            })
+            .unwrap();
+        let buffer = DevEventBuffer::default();
+
+        record_cdp_dev_event(
+            &buffer,
+            &registry,
+            CdpEvent {
+                session_id: Some("cdp-session-1".into()),
+                method: "Log.entryAdded".into(),
+                params: json!({
+                    "entry": { "level": "warning", "text": "careful" }
+                }),
+            },
+        );
+
+        let rows = buffer.query(DevEventQuery {
+            tab_id: "target-1",
+            session_id: Some("obu-session"),
+            methods: &["Log.entryAdded"],
+            max_entries: 10,
+            clear: false,
+        });
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].method, "Log.entryAdded");
+        assert_eq!(rows[0].params["entry"]["text"], json!("careful"));
+    }
+
+    #[test]
+    fn cdp_dev_event_lag_records_host_diagnostic() {
+        let buffer = DevEventBuffer::default();
+        record_cdp_dev_event_lag(&buffer, 7);
+
+        let rows = buffer.query(DevEventQuery {
+            tab_id: "__host__",
+            session_id: None,
+            methods: &["obu.dev_events.lagged"],
+            max_entries: 10,
+            clear: false,
+        });
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].params["backend"], json!("cdp"));
+        assert_eq!(rows[0].params["dropped"], json!(7));
+    }
 }

@@ -9,6 +9,10 @@ import { BrowserDebuggerController } from "../dist/browser_debugger_controller.j
 
   assert.equal(harness.session.attachedTabIds.has(4), true);
   assert.deepEqual(harness.calls.attach, [4]);
+  assert.deepEqual(harness.calls.debuggerCommands.slice(0, 2), [
+    [4, "Runtime.enable", {}],
+    [4, "Log.enable", {}],
+  ]);
   assert.equal(harness.calls.logs.at(-1).event, "debugger.attach.requested");
 
   await harness.controller.attachDebugger(baseParams());
@@ -33,13 +37,13 @@ import { BrowserDebuggerController } from "../dist/browser_debugger_controller.j
   assert.deepEqual(harness.calls.attach, [4]);
   assert.deepEqual(harness.calls.activate, [[4, { x: 1, y: 2, sequence: 3 }]]);
   assert.deepEqual(harness.calls.inputBypass, [[4, "cdp-mouse", ["pointer"]]]);
-  assert.deepEqual(harness.calls.debuggerCommands, [[4, "Input.dispatchMouseEvent", {
+  assert.deepEqual(harness.calls.debuggerCommands.at(-1), [4, "Input.dispatchMouseEvent", {
     type: "mouseReleased",
     x: 10,
     y: 20,
     button: "left",
     clickCount: 1,
-  }]]);
+  }]);
   assert.deepEqual(harness.calls.cursorEvents.map((row) => [row[0], row[1].kind]), [[4, "release"], [4, "click"]]);
   assert.deepEqual(harness.row.lastCursor, { x: 10, y: 20 });
   assert.equal(harness.calls.persist, 1);
@@ -57,7 +61,7 @@ import { BrowserDebuggerController } from "../dist/browser_debugger_controller.j
   });
 
   assert.deepEqual(harness.calls.captureSuppressed, [4]);
-  assert.deepEqual(harness.calls.debuggerCommands, [[4, "Page.captureScreenshot", { format: "png" }]]);
+  assert.deepEqual(harness.calls.debuggerCommands.at(-1), [4, "Page.captureScreenshot", { format: "png" }]);
 }
 
 // A top-level command carries no OOPIF child sessionId.
@@ -70,7 +74,7 @@ import { BrowserDebuggerController } from "../dist/browser_debugger_controller.j
     commandParams: { depth: -1 },
   });
 
-  assert.deepEqual(harness.calls.debuggerCommandSessions, [undefined]);
+  assert.deepEqual(harness.calls.debuggerCommandSessions, [undefined, undefined, undefined]);
 }
 
 // A `target.sessionId` routes the command to the flattened OOPIF child session.
@@ -84,10 +88,10 @@ import { BrowserDebuggerController } from "../dist/browser_debugger_controller.j
     commandParams: { backendNodeId: 900 },
   });
 
-  assert.deepEqual(harness.calls.debuggerCommands, [[4, "DOM.getContentQuads", { backendNodeId: 900 }]]);
+  assert.deepEqual(harness.calls.debuggerCommands.at(-1), [4, "DOM.getContentQuads", { backendNodeId: 900 }]);
   assert.deepEqual(
     harness.calls.debuggerCommandSessions,
-    ["OOPIF-CHILD"],
+    [undefined, undefined, "OOPIF-CHILD"],
     "executeCdp must forward target.sessionId to sendDebuggerCommand",
   );
 }

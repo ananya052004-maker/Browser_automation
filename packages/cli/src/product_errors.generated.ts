@@ -158,5 +158,17 @@ export const PRODUCT_ERROR_SCHEMA = [
       "kind": "manual",
       "summary": "If error.data.retryable is true, retry with backoff; otherwise report error.data.netError and stop."
     }
+  },
+  {
+    "code": "postcondition_failed",
+    "title": "Postcondition failed",
+    "summary": "The browser action ran, but the expected follow-up page state did not become true.",
+    "jsonRpcCodes": [
+      -1205
+    ],
+    "nextAction": {
+      "kind": "observe_reconcile",
+      "summary": "Re-observe the page, inspect the failed condition details, then choose a new action instead of blindly repeating the previous one."
+    }
   }
 ] as const;

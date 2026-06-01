@@ -75,11 +75,13 @@ every cell, and don't loop per-element reads (`getAttribute`/`innerText`) as a s
 parse one `domSnapshot()` instead. `tab.snapshotText()` is a capped affordance summary
 (~20 items/category) of clickable/typable chrome — NOT page content (it carries no prose).
 Its `interactables[]` entries expose role/name/tag/type/href plus enabled/visible flags
-and, when available, `locatorHint.expression` with `matchCount`/`unique`/`ambiguity`
-evidence. Prefer a unique hint before acting; ambiguous hints mean you should scope
-to a container, use `.nth(...)`, or inspect a stronger attribute instead of repeating
-the same broad locator. On dense, result-grid, or SPA pages prefer `domSnapshot()` for
-the full page, or run your own `tab.evaluate(...)` query for a scoped slice. It
+and, when available, `locatorHint.expression` plus `locatorRecipes[]` with
+`matchCount`/`unique`/`ambiguity` evidence. Prefer a unique hint/recipe before acting;
+ambiguous hints mean you should scope to a container or inspect a stronger attribute
+instead of repeating the same broad locator. Use `.first()` / `.nth(i)` only after
+`count()` or scoped evidence shows why that index is the intended target. On dense,
+result-grid, or SPA pages prefer `domSnapshot()` for the full page, or run your own
+`tab.evaluate(...)` query for a scoped slice. It
 self-describes its compaction —
 `result.meta.truncated` plus per-category `meta.categories.{links,headings,interactables,...}.{shown,total}`
 — so branch on `meta.truncated` to decide whether to go to `domSnapshot()`/`evaluate()`
@@ -129,11 +131,14 @@ matches):
 5. Coordinate or visual targeting (the modality ladder below) — only when no stable
    DOM locator exists.
 
-When a broad locator is ambiguous, do not retry the same selector. If available, inspect
-`snapshotText().interactables[].locatorHint.matchCount` / `.unique` first. Narrow it with
-`.first()`, `.nth(i)`, `.filter({ visible: true })`, a role/name locator, or a
-container scope. If `snapshotText().meta.truncated` is true, inspect
-`snapshotText().interactables` or a scoped `domSnapshot()` before acting.
+When a broad locator is ambiguous, do not retry the same selector and do not use
+`.first()` / `.nth(i)` as a guess. Use `.first()` / `.nth(i)` only after you have
+evidence from `await locator.count()`, `snapshotText().interactables[].locatorHint.matchCount`,
+or a scoped container read showing why that index is the intended target. Prefer a
+unique `locatorHint` / `locatorRecipes[]` entry, a role/name locator,
+`.filter({ visible: true })`, or a container scope before ordinal selection. If
+`snapshotText().meta.truncated` is true, inspect `snapshotText().interactables`,
+`tab.affordances()`, or a scoped `domSnapshot()` before acting.
 
 Modality preference ladder (prefer the highest-fidelity modality that can act on
 the target):
