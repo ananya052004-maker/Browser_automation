@@ -25,14 +25,16 @@ local `trust_all`.
 
 **Always:** run `browser_status` first if readiness is uncertain · keep `browser`
 and `tab` on `globalThis` and reuse them across cells · call `browser.name("…")`
-early so Chrome tab groups stay attributable · `await tab.attach()` before acting ·
+early so Chrome tab groups stay attributable · create the first task tab with the
+target URL when the first page is known · `await tab.attach()` before acting ·
 prefer semantic locators (`getByRole`/`getByLabel`) and `tab.goto(url)` over opening
 new tabs · reuse the last snapshot until navigation, a modal/dropdown, a timeout, a
 strict-match failure, or a parse failure means the UI changed · batch reads
 (`locator.all()`, one `tab.evaluate(...)`) instead of per-element
 `getAttribute`/`innerText` loops · read `structuredContent`, not the text summary.
 
-**Never:** open a new browser or tab per cell · brute-force undocumented URLs or
+**Never:** open a new browser or tab per cell · create or attach an intermediate
+`about:blank` tab as a bootstrap step when the task has a target URL · brute-force undocumented URLs or
 query-param grids (try one alternative, then navigate visibly or report the best
 result) · re-verify a fact an authoritative signal already gave (success toast, cart
 line item, selected/checked state, URL parameter) · use raw CDP when
@@ -42,17 +44,22 @@ HTTP, e.g. `python3 -m http.server`, then open `http://127.0.0.1:…`).
 ## Bootstrap
 
 Keep persistent handles on `globalThis` so later cells continue the same visible
-task instead of opening a new tab:
+task instead of opening a new tab. If the task has a known first page, create the
+first task tab with the target URL in the same bootstrap cell. Do not create or
+attach an intermediate `about:blank` tab and then navigate away from it:
 
 ```js
 if (!globalThis.browser) globalThis.browser = await agent.browsers.get("chrome");
 await browser.name("short task label");
+const startUrl = "https://example.com"; // replace with the first page for this task
 if (typeof tab === "undefined")
-  globalThis.tab = (await browser.tabs.current()) ?? (await browser.tabs.create("about:blank"));
+  globalThis.tab = (await browser.tabs.current()) ?? (await browser.tabs.create(startUrl));
 await tab.attach();
 ```
 
-`browser.tabs.create()` accepts a URL string or `{ url }` (no URL → `about:blank`).
+`browser.tabs.create()` accepts a URL string or `{ url }`. Calling it without a URL
+intentionally opens `about:blank` for rare blank-canvas workflows; it is not the
+recommended bootstrap path.
 `browser.tabs.current()` continues the active task; `browser.tabs.selected()` is
 browser-visible discovery — if it returns a user tab reference, claim/resume it
 before acting. One session can hold several named `Tab` handles; move data between

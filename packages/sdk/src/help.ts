@@ -12,7 +12,7 @@ Browser:
   .profileMetadata -> non-sensitive browser profile identity; raw profile paths are diagnostics-only
   .deliverables() -> finalized durable tabs, with .claim()
   .ensureReady() -> compact backend/capability/diagnostic summary
-  .tabs.create(urlOrOptions?) -> Tab   accepts "https://..." or {url}; defaults to "about:blank"
+  .tabs.create(urlOrOptions?) -> Tab   accepts "https://..." or {url}; create the first task tab with the target URL to avoid an intermediate about:blank tab
   .tabs.current() -> current session-owned task tab, if any
   .tabs.selected() -> browser-visible selected tab or UserTabRef when claim/resume is required
   .tabs.list() -> Tab[]

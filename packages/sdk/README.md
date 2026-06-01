@@ -68,8 +68,11 @@ Call `agent.help()` for the live API table. Main layers:
 | `tab.dev.cdp(method, params)` | `executeCdp` |
 | `display(value)` | Delegates to the kernel-locked display global |
 
-`browser.tabs.create()` accepts either a URL string or `{ url }`. With no URL it
-creates `about:blank`, not Chrome's extension-restricted new-tab page.
+`browser.tabs.create()` accepts either a URL string or `{ url }`. When a workflow
+has a known first page, create the first task tab with the target URL to avoid an
+intermediate `about:blank` tab. Calling `browser.tabs.create()` without a URL
+intentionally opens `about:blank` for rare blank-canvas workflows; it is not the
+recommended bootstrap path.
 Keep a `Tab` handle and use `tab.goto(url)` for repeated same-task navigation.
 Use `browser.tabs.current()` for the session-owned continuation tab and
 `browser.tabs.selected()` only for browser-visible discovery; selected

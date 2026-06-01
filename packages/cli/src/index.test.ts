@@ -1818,9 +1818,12 @@ test("setup can write Codex and Claude primary-browser instructions explicitly",
   const codexInstructions = await readFile(path.join(home, ".codex", "AGENTS.md"), "utf8");
   const claudeInstructions = await readFile(path.join(home, ".claude", "CLAUDE.md"), "utf8");
   for (const instructions of [codexInstructions, claudeInstructions]) {
+    const normalizedInstructions = instructions.replace(/\s+/g, " ");
     assert.match(instructions, /primary BrowserUse\/browser automation tool/);
     assert.match(instructions, /Check `browser_status`/);
     assert.match(instructions, /use the `js` tool for browser automation/);
+    assert.match(normalizedInstructions, /create the first task tab with the target URL/);
+    assert.match(normalizedInstructions, /avoid opening `about:blank` as a bootstrap step/);
     assert.match(instructions, /run `~\/\.obu\/bin\/obu verify --agent=<agent-id> --browser=<browser> --channel=<channel> --extension-id=<extension-id>`/);
   }
 });
