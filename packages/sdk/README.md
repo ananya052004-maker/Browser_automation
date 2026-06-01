@@ -105,8 +105,10 @@ the intended path.
 
 Rich clipboard `read()` / `write()` use Codex-shaped multi-MIME clipboard items
 on WebExtension sessions through the target-page virtual clipboard. Use
-`tab.dev.logs()` for page console output and `tab.dev.cdp(...)` for direct CDP
-protocol access such as cookies, storage, and other low-level browser domains.
+`tab.dev.logs()` for page console output; call it once before the action you want
+to debug so the page-side buffer is installed for subsequent `console.*` calls.
+Use `tab.dev.cdp(...)` for direct CDP protocol access such as cookies, storage,
+and other low-level browser domains.
 
 WebExtension `tab.cua.type()`, `tab.dom_cua.type()`, and plain
 `Cmd/Ctrl+V` keypresses use the same virtual clipboard path, so paste handlers

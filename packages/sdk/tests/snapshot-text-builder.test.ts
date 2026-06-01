@@ -208,7 +208,7 @@ describe("snapshotTextExpression", () => {
         visible: true,
         locatorHint: {
           kind: "role",
-          expression: 'tab.getByRole("button", { name: "Save" })',
+          expression: 'tab.getByRole("button", { name: "Save", exact: true })',
           matchCount: 1,
           unique: true,
         },
@@ -224,7 +224,7 @@ describe("snapshotTextExpression", () => {
         visible: true,
         locatorHint: {
           kind: "role",
-          expression: 'tab.getByRole("link", { name: "Compare models" })',
+          expression: 'tab.getByRole("link", { name: "Compare models", exact: true })',
           matchCount: 1,
           unique: true,
         },
@@ -243,10 +243,66 @@ describe("snapshotTextExpression", () => {
 
     expect(r.interactables[0].locatorHint).toEqual({
       kind: "role",
-      expression: 'tab.getByRole("button", { name: "Save" })',
+      expression: 'tab.getByRole("button", { name: "Save", exact: true })',
       matchCount: 2,
       unique: false,
       ambiguity: "2 interactables share role/name; scope to a container or use a stronger attribute before acting",
+    });
+  });
+
+  it("emits exact locator hints so prefix and case variants do not overstate ambiguity", () => {
+    document.body.innerHTML = `
+      <button>Save</button>
+      <button>Save draft</button>
+      <button>save</button>`;
+
+    const r = run();
+
+    expect(r.interactables[0].locatorHint).toEqual({
+      kind: "role",
+      expression: 'tab.getByRole("button", { name: "Save", exact: true })',
+      matchCount: 1,
+      unique: true,
+    });
+    expect(r.interactables[1].locatorHint).toEqual({
+      kind: "role",
+      expression: 'tab.getByRole("button", { name: "Save draft", exact: true })',
+      matchCount: 1,
+      unique: true,
+    });
+    expect(r.interactables[2].locatorHint).toEqual({
+      kind: "role",
+      expression: 'tab.getByRole("button", { name: "save", exact: true })',
+      matchCount: 1,
+      unique: true,
+    });
+  });
+
+  it("uses accessible names for locator hints", () => {
+    document.body.innerHTML = `
+      <button id="icon" aria-label="Close">×</button>
+      <span id="submit-label">Submit order</span>
+      <button id="labelled" aria-labelledby="submit-label"><span>ignored text</span></button>`;
+
+    const r = run();
+
+    expect(r.interactables[0]).toMatchObject({
+      name: "Close",
+      locatorHint: {
+        kind: "role",
+        expression: 'tab.getByRole("button", { name: "Close", exact: true })',
+        matchCount: 1,
+        unique: true,
+      },
+    });
+    expect(r.interactables[1]).toMatchObject({
+      name: "Submit order",
+      locatorHint: {
+        kind: "role",
+        expression: 'tab.getByRole("button", { name: "Submit order", exact: true })',
+        matchCount: 1,
+        unique: true,
+      },
     });
   });
 });

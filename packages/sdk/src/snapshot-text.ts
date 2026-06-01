@@ -133,11 +133,30 @@ export function snapshotTextExpression(maxItems: number, maxTextLength: number):
     }
     return "";
   };
-  const interactableName = (el) =>
-    cleanText(el) ||
+  const labelledByText = (el) => {
+    const ids = text(el.getAttribute("aria-labelledby")).split(" ").filter(Boolean);
+    if (!ids.length) return "";
+    const root = el.ownerDocument || document;
+    return text(ids.map((id) => cleanText(root.getElementById(id))).filter(Boolean).join(" "));
+  };
+  const nativeLabelText = (el) => el.labels && el.labels.length ? text(el.labels[0].textContent) : "";
+  const inputButtonValue = (el) => {
+    const tag = (el.tagName || "").toLowerCase();
+    const type = (el.getAttribute("type") || "").toLowerCase();
+    return tag === "input" && ["button", "submit", "reset", "image"].includes(type)
+      ? text(el.getAttribute("value"))
+      : "";
+  };
+  const locatorNameFor = (el) =>
+    labelledByText(el) ||
     text(el.getAttribute("aria-label")) ||
-    (el.labels && el.labels.length ? text(el.labels[0].textContent) : "") ||
+    nativeLabelText(el) ||
     text(el.getAttribute("alt")) ||
+    inputButtonValue(el) ||
+    cleanText(el) ||
+    text(el.getAttribute("title"));
+  const interactableName = (el) =>
+    locatorNameFor(el) ||
     text(el.getAttribute("title")) ||
     text(el.getAttribute("placeholder")) ||
     text(el.getAttribute("value")) ||
@@ -190,20 +209,20 @@ export function snapshotTextExpression(maxItems: number, maxTextLength: number):
   const roleNameCounts = new Map();
   for (const el of interactableEls) {
     const role = roleOf(el);
-    const name = interactableName(el);
+    const name = locatorNameFor(el);
     const key = roleNameKey(role, name);
     if (!key) continue;
     roleNameCounts.set(key, (roleNameCounts.get(key) || 0) + 1);
   }
   const locatorHintFor = (el) => {
     const role = roleOf(el);
-    const name = interactableName(el);
+    const name = locatorNameFor(el);
     const key = roleNameKey(role, name);
     if (!key) return null;
     const matchCount = roleNameCounts.get(key) || 0;
     return {
       kind: "role",
-      expression: "tab.getByRole(" + quote(role) + ", { name: " + quote(name) + " })",
+      expression: "tab.getByRole(" + quote(role) + ", { name: " + quote(name) + ", exact: true })",
       matchCount,
       unique: matchCount === 1,
       ...(matchCount > 1

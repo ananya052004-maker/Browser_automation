@@ -120,36 +120,71 @@ function isLogLevel(value: unknown): value is TabDevLogLevel {
   return value === "debug" || value === "log" || value === "info" || value === "warn" || value === "error";
 }
 
-function consoleLogBufferExpression(maxEntries: number, clearAfterRead: boolean): string {
+export function consoleLogBufferExpression(maxEntries: number, clearAfterRead: boolean): string {
   return `
 (() => {
   const maxEntries = ${maxEntries};
   const clearAfterRead = ${clearAfterRead};
   const key = "__obuConsoleLogBuffer";
   const levels = ["debug", "log", "info", "warn", "error"];
-  const textOf = (value) => {
-    if (typeof value === "string") return value;
-    if (value instanceof Error) return value.stack || value.message || String(value);
+  const maxTextChars = 2000;
+  const maxArgStringChars = 1000;
+  const maxObjectEntries = 25;
+  const maxDepth = 3;
+  const truncateString = (value, limit) => {
+    const s = String(value);
+    if (s.length <= limit) return s;
+    return s.slice(0, limit) + "...[truncated " + (s.length - limit) + " chars]";
+  };
+  const snapshotValue = (value, depth = 0, seen = new WeakSet()) => {
+    if (value === undefined) return { type: "undefined" };
+    if (value === null || typeof value === "number" || typeof value === "boolean") return value;
+    if (typeof value === "string") return truncateString(value, maxArgStringChars);
+    if (typeof value === "bigint") return truncateString(String(value) + "n", maxArgStringChars);
+    if (typeof value === "function") return "[Function " + (value.name || "anonymous") + "]";
+    if (value instanceof Error) {
+      return {
+        name: truncateString(value.name || "Error", 120),
+        message: truncateString(value.message || "", maxArgStringChars),
+        stack: value.stack ? truncateString(value.stack, maxArgStringChars) : undefined,
+      };
+    }
+    if (typeof value !== "object") return truncateString(String(value), maxArgStringChars);
+    if (seen.has(value)) return "[Circular]";
+    if (depth >= maxDepth) return Array.isArray(value) ? "[Array]" : "[Object]";
+    seen.add(value);
     try {
-      const json = JSON.stringify(value);
-      if (json !== undefined) return json;
-    } catch {}
-    try {
-      return String(value);
-    } catch {
-      return "[unprintable]";
+      if (Array.isArray(value)) {
+        const out = value.slice(0, maxObjectEntries).map((item) => snapshotValue(item, depth + 1, seen));
+        if (value.length > maxObjectEntries) out.push({ __truncatedItems: value.length - maxObjectEntries });
+        return out;
+      }
+      const out = {};
+      const keys = Object.keys(value);
+      for (const key of keys.slice(0, maxObjectEntries)) {
+        try {
+          out[key] = snapshotValue(value[key], depth + 1, seen);
+        } catch (error) {
+          out[key] = "[Unserializable: " + (error && error.message ? error.message : String(error)) + "]";
+        }
+      }
+      if (keys.length > maxObjectEntries) out.__truncatedKeys = keys.length - maxObjectEntries;
+      return out;
+    } finally {
+      seen.delete(value);
     }
   };
-  const safeValue = (value) => {
-    if (value === undefined) return { type: "undefined" };
-    if (typeof value === "bigint") return String(value) + "n";
-    if (typeof value === "function") return "[Function " + (value.name || "anonymous") + "]";
-    if (value instanceof Error) return { name: value.name, message: value.message, stack: value.stack };
+  const textOf = (value) => {
+    if (typeof value === "string") return truncateString(value, maxArgStringChars);
+    if (value instanceof Error) return truncateString(value.stack || value.message || String(value), maxArgStringChars);
     try {
-      JSON.stringify(value);
-      return value;
+      const json = JSON.stringify(snapshotValue(value));
+      if (json !== undefined) return truncateString(json, maxArgStringChars);
+    } catch {}
+    try {
+      return truncateString(String(value), maxArgStringChars);
     } catch {
-      return textOf(value);
+      return "[unprintable]";
     }
   };
   const root = globalThis;
@@ -157,10 +192,11 @@ function consoleLogBufferExpression(maxEntries: number, clearAfterRead: boolean)
     const entries = [];
     const original = {};
     const push = (level, args) => {
+      const argList = Array.from(args);
       entries.push({
         level,
-        text: Array.from(args).map(textOf).join(" "),
-        args: Array.from(args).map(safeValue),
+        text: truncateString(argList.map(textOf).join(" "), maxTextChars),
+        args: argList.map((value) => snapshotValue(value)),
         timestamp: Date.now(),
       });
       if (entries.length > 500) entries.splice(0, entries.length - 500);
