@@ -73,13 +73,13 @@ node scripts/p4-release-readiness-smoke.mjs
 ```
 
 The P4 packaging CI includes a `p4-target-payloads` matrix for the five P4a
-targets. Each matrix leg builds target Rust binaries, fetches the pinned Node
-runtime for that target, assembles a payload, runs `payload-self-check`, stages
-the matching npm package, and runs static package/tarball checks. Runner-native
-targets also run dynamic npm and curl install smokes. Every matrix leg uploads
-the generated `open-browser-use-<version>-<target>.tar.gz`, `.sha256`,
-`install.sh`, and manifest as a GitHub Actions artifact for GitHub Release
-promotion.
+targets. Each matrix leg builds release-mode target Rust binaries, fetches the
+pinned Node runtime for that target, assembles a payload, runs
+`payload-self-check`, stages the matching npm package, and runs static
+package/tarball checks. Runner-native targets also run dynamic npm and curl
+install smokes. Every matrix leg uploads the generated
+`open-browser-use-<version>-<target>.tar.gz`, `.sha256`, `install.sh`, and
+manifest as a GitHub Actions artifact for GitHub Release promotion.
 
 Assemble the current-platform preview payload:
 
@@ -188,8 +188,10 @@ uploading GitHub Release assets, verify `manifest.json`, `manifest.tsv`,
 `install.sh`, every artifact tarball, and every `.sha256` file are present in
 the same asset set.
 
-For the fast path, promote a successful `P4 Packaging CI` run with the release
-publish workflow instead of downloading and re-uploading artifacts locally:
+For the fast path, promote a successful `P4 Packaging CI` run from `main` with
+the release publish workflow instead of downloading and re-uploading artifacts
+locally. The source run must be a `push` or `workflow_dispatch` run on `main`;
+PR runs are not promotable:
 
 ```bash
 gh workflow run release-publish.yml \
@@ -204,13 +206,13 @@ from the selected run, merges target manifests into the final release manifest,
 validates checksums and sizes, uploads the draft release, verifies the asset set,
 and publishes it when `publish=true`.
 
-Also attach the standalone unpacked extension `open-browser-use-extension.zip`
-(plus its `.sha256`) to the GitHub Release, alongside the tarballs and
-`install.sh`. The `p4-packaging` CI job builds it (via
-`node scripts/make-extension-artifact.mjs`) and uploads it as the
-`open-browser-use-extension` workflow artifact, but attaching it to the Release
-is a manual promotion step like the other assets — CI does not publish Release
-assets on its own. The README links it at the stable URL
+The workflow also attaches the standalone unpacked extension
+`open-browser-use-extension.zip` (plus its `.sha256`) to the GitHub Release,
+alongside the tarballs and `install.sh`. The `p4-packaging` CI job builds it
+(via `node scripts/make-extension-artifact.mjs`) and uploads it as the
+`open-browser-use-extension` workflow artifact; `release-publish.yml` downloads
+that artifact and uploads it to the Release with the target payloads. The README
+links it at the stable URL
 `releases/latest/download/open-browser-use-extension.zip`, so keep that filename
 stable across releases. It must be the unpacked-dev build (manifest `key`
 present, id `fblnfcjnjklpgnmfnngcihbcgojnpadj`); `make-extension-artifact.mjs`

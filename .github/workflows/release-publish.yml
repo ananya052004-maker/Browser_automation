@@ -56,12 +56,18 @@ jobs:
 
       - name: Validate source workflow run
         run: |
-          RUN_JSON="$(gh run view "$RELEASE_RUN_ID" --json conclusion,headSha,status,workflowName)"
+          RUN_JSON="$(gh run view "$RELEASE_RUN_ID" --json conclusion,event,headBranch,headSha,status,workflowName)"
           RUN_JSON="$RUN_JSON" node --input-type=module <<'NODE'
           const run = JSON.parse(process.env.RUN_JSON);
           const expectedSha = process.env.RELEASE_TARGET_SHA;
           if (run.workflowName !== "P4 Packaging CI") {
             throw new Error(`run ${process.env.RELEASE_RUN_ID} is ${run.workflowName}, expected P4 Packaging CI`);
+          }
+          if (run.event !== "push" && run.event !== "workflow_dispatch") {
+            throw new Error(`run ${process.env.RELEASE_RUN_ID} event ${run.event} is not promotable`);
+          }
+          if (run.headBranch !== "main") {
+            throw new Error(`run ${process.env.RELEASE_RUN_ID} headBranch ${run.headBranch} is not main`);
           }
           if (run.status !== "completed" || run.conclusion !== "success") {
             throw new Error(`run ${process.env.RELEASE_RUN_ID} is ${run.status}/${run.conclusion}, expected completed/success`);
@@ -94,29 +100,43 @@ jobs:
             --out dist/release \
             --version "$RELEASE_VERSION"
 
-      - name: Create draft release
+      - name: Create and verify draft release
         run: |
           set -euo pipefail
           TAG="v${RELEASE_VERSION#v}"
+          RELEASE_MAY_EXIST=0
+          TAG_EXISTED=0
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists" >&2
             exit 1
           fi
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            TAG_EXISTED=1
+          fi
+          cleanup_release_on_failure() {
+            status=$?
+            if [ "$RELEASE_MAY_EXIST" -eq 1 ]; then
+              echo "Cleaning up draft release $TAG after failed verification" >&2
+              if [ "$TAG_EXISTED" -eq 1 ]; then
+                gh release delete "$TAG" -y >/dev/null 2>&1 || true
+              else
+                gh release delete "$TAG" --cleanup-tag -y >/dev/null 2>&1 || true
+              fi
+            fi
+            exit "$status"
+          }
+          trap cleanup_release_on_failure ERR
           gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
             -f tag_name="$TAG" \
             -f target_commitish="$RELEASE_TARGET_SHA" \
             --jq .body > dist/release-notes.md
+          RELEASE_MAY_EXIST=1
           gh release create "$TAG" \
             --target "$RELEASE_TARGET_SHA" \
             --title "open-browser-use $TAG" \
             --draft \
             --notes-file dist/release-notes.md \
             dist/release/*
-
-      - name: Verify uploaded release
-        run: |
-          set -euo pipefail
-          TAG="v${RELEASE_VERSION#v}"
           RELEASE_JSON="$(gh release view "$TAG" --json assets,isDraft,isPrerelease,targetCommitish)"
           RELEASE_JSON="$RELEASE_JSON" node --input-type=module <<'NODE'
           const release = JSON.parse(process.env.RELEASE_JSON);
@@ -147,6 +167,7 @@ jobs:
             throw new Error(`uploaded asset mismatch:\nexpected ${expected.join("\n")}\nactual ${names.join("\n")}`);
           }
           NODE
+          trap - ERR
 
       - name: Publish release
         if: ${{ inputs.publish }}
