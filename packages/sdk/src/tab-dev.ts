@@ -129,6 +129,8 @@ export function consoleLogBufferExpression(maxEntries: number, clearAfterRead: b
   const levels = ["debug", "log", "info", "warn", "error"];
   const maxTextChars = 2000;
   const maxArgStringChars = 1000;
+  const maxArgs = 20;
+  const maxKeyChars = 120;
   const maxObjectEntries = 25;
   const maxDepth = 3;
   const truncateString = (value, limit) => {
@@ -160,15 +162,23 @@ export function consoleLogBufferExpression(maxEntries: number, clearAfterRead: b
         return out;
       }
       const out = {};
-      const keys = Object.keys(value);
-      for (const key of keys.slice(0, maxObjectEntries)) {
+      let copied = 0;
+      let truncated = false;
+      for (const rawKey in value) {
+        if (!Object.prototype.hasOwnProperty.call(value, rawKey)) continue;
+        if (copied >= maxObjectEntries) {
+          truncated = true;
+          break;
+        }
+        const key = truncateString(rawKey, maxKeyChars);
         try {
-          out[key] = snapshotValue(value[key], depth + 1, seen);
+          out[key] = snapshotValue(value[rawKey], depth + 1, seen);
         } catch (error) {
           out[key] = "[Unserializable: " + (error && error.message ? error.message : String(error)) + "]";
         }
+        copied += 1;
       }
-      if (keys.length > maxObjectEntries) out.__truncatedKeys = keys.length - maxObjectEntries;
+      if (truncated) out.__truncatedKeys = true;
       return out;
     } finally {
       seen.delete(value);
@@ -192,11 +202,16 @@ export function consoleLogBufferExpression(maxEntries: number, clearAfterRead: b
     const entries = [];
     const original = {};
     const push = (level, args) => {
-      const argList = Array.from(args);
+      const argList = args.slice(0, maxArgs);
+      const snapshotArgs = argList.map((value) => snapshotValue(value));
+      if (args.length > maxArgs) snapshotArgs.push({ __truncatedArgs: args.length - maxArgs });
       entries.push({
         level,
-        text: truncateString(argList.map(textOf).join(" "), maxTextChars),
-        args: argList.map((value) => snapshotValue(value)),
+        text: truncateString(
+          argList.map(textOf).join(" ") + (args.length > maxArgs ? " ...[" + (args.length - maxArgs) + " more args]" : ""),
+          maxTextChars,
+        ),
+        args: snapshotArgs,
         timestamp: Date.now(),
       });
       if (entries.length > 500) entries.splice(0, entries.length - 500);

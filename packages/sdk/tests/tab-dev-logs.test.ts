@@ -57,4 +57,27 @@ describe("consoleLogBufferExpression", () => {
     expect(String(entry.args[0]).length).toBeLessThanOrEqual(1100);
     expect((entry.args[1] as { huge: string }).huge.length).toBeLessThanOrEqual(1100);
   });
+
+  it("caps argument count", () => {
+    const context = makeContext();
+
+    readLogs(context);
+    vm.runInContext("console.log(...Array.from({ length: 80 }, (_, index) => index));", context);
+    const entry = readLogs(context)[0]!;
+
+    expect(entry.args).toHaveLength(21);
+    expect(entry.args.at(-1)).toEqual({ __truncatedArgs: 60 });
+  });
+
+  it("truncates oversized object keys", () => {
+    const context = makeContext();
+
+    readLogs(context);
+    vm.runInContext("console.log({ ['k'.repeat(5000)]: 'value' });", context);
+    const entry = readLogs(context)[0]!;
+    const key = Object.keys(entry.args[0] as Record<string, unknown>)[0]!;
+
+    expect(key.length).toBeLessThanOrEqual(160);
+    expect(key).toContain("[truncated");
+  });
 });

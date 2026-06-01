@@ -305,4 +305,34 @@ describe("snapshotTextExpression", () => {
       },
     });
   });
+
+  it("omits exact locator hints when the accessible name is clipped", () => {
+    document.body.innerHTML = `<button>${"Confirm ".repeat(30)}</button>`;
+
+    const r = run(20, 40);
+
+    expect(r.interactables[0].name).toHaveLength(40);
+    expect(r.interactables[0].locatorHint).toBeUndefined();
+    expect(r.meta.truncated).toBe(true);
+  });
+
+  it("joins all native labels for locator hint names", () => {
+    document.body.innerHTML = `
+      <label for="q">First</label>
+      <label for="q">Last</label>
+      <input id="q" type="text">`;
+
+    const r = run();
+
+    expect(r.interactables[0]).toMatchObject({
+      role: "textbox",
+      name: "First Last",
+      locatorHint: {
+        kind: "role",
+        expression: 'tab.getByRole("textbox", { name: "First Last", exact: true })',
+        matchCount: 1,
+        unique: true,
+      },
+    });
+  });
 });

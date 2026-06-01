@@ -50,8 +50,9 @@ export function snapshotTextExpression(maxItems: number, maxTextLength: number):
 (() => {
   const OBU_OVERLAY_SELECTOR = "#obu-agent-overlay-root,[data-obu-overlay-root]";
   let __clipped = false;
+  const normalizeText = (value) => String(value || "").replace(/\\s+/g, " ").trim();
   const text = (value) => {
-    const s = String(value || "").replace(/\\s+/g, " ").trim();
+    const s = normalizeText(value);
     if (s.length > ${maxTextLength}) { __clipped = true; return s.slice(0, ${maxTextLength}); }
     return s;
   };
@@ -59,15 +60,16 @@ export function snapshotTextExpression(maxItems: number, maxTextLength: number):
   // Never leak <style>/<script> text content into a label. textContent concatenates the
   // text of nested <style> nodes (e.g. Google injects scoped styles inside buttons), so
   // strip them on a clone before reading.
-  const cleanText = (el) => {
+  const cleanTextRaw = (el) => {
     if (!el) return "";
     if (el.querySelector && el.querySelector("style,script")) {
       const clone = el.cloneNode(true);
       clone.querySelectorAll("style,script").forEach((n) => n.remove());
-      return text(clone.textContent);
+      return normalizeText(clone.textContent);
     }
-    return text(el.textContent);
+    return normalizeText(el.textContent);
   };
+  const cleanText = (el) => text(cleanTextRaw(el));
   const all = (selector) => Array.from(document.querySelectorAll(selector)).filter((el) => !isObuOverlay(el));
   const cap = (arr) => arr.slice(0, ${maxItems});
   const rectHasArea = (rect) => rect && rect.width > 0 && rect.height > 0;
@@ -134,29 +136,31 @@ export function snapshotTextExpression(maxItems: number, maxTextLength: number):
     return "";
   };
   const labelledByText = (el) => {
-    const ids = text(el.getAttribute("aria-labelledby")).split(" ").filter(Boolean);
+    const ids = normalizeText(el.getAttribute("aria-labelledby")).split(" ").filter(Boolean);
     if (!ids.length) return "";
     const root = el.ownerDocument || document;
-    return text(ids.map((id) => cleanText(root.getElementById(id))).filter(Boolean).join(" "));
+    return normalizeText(ids.map((id) => cleanTextRaw(root.getElementById(id))).filter(Boolean).join(" "));
   };
-  const nativeLabelText = (el) => el.labels && el.labels.length ? text(el.labels[0].textContent) : "";
+  const nativeLabelText = (el) => el.labels && el.labels.length
+    ? normalizeText(Array.from(el.labels).map((label) => cleanTextRaw(label)).filter(Boolean).join(" "))
+    : "";
   const inputButtonValue = (el) => {
     const tag = (el.tagName || "").toLowerCase();
     const type = (el.getAttribute("type") || "").toLowerCase();
     return tag === "input" && ["button", "submit", "reset", "image"].includes(type)
-      ? text(el.getAttribute("value"))
+      ? normalizeText(el.getAttribute("value"))
       : "";
   };
   const locatorNameFor = (el) =>
     labelledByText(el) ||
-    text(el.getAttribute("aria-label")) ||
+    normalizeText(el.getAttribute("aria-label")) ||
     nativeLabelText(el) ||
-    text(el.getAttribute("alt")) ||
+    normalizeText(el.getAttribute("alt")) ||
     inputButtonValue(el) ||
-    cleanText(el) ||
-    text(el.getAttribute("title"));
+    cleanTextRaw(el) ||
+    normalizeText(el.getAttribute("title"));
   const interactableName = (el) =>
-    locatorNameFor(el) ||
+    text(locatorNameFor(el)) ||
     text(el.getAttribute("title")) ||
     text(el.getAttribute("placeholder")) ||
     text(el.getAttribute("value")) ||
@@ -210,6 +214,7 @@ export function snapshotTextExpression(maxItems: number, maxTextLength: number):
   for (const el of interactableEls) {
     const role = roleOf(el);
     const name = locatorNameFor(el);
+    if (name.length > ${maxTextLength}) continue;
     const key = roleNameKey(role, name);
     if (!key) continue;
     roleNameCounts.set(key, (roleNameCounts.get(key) || 0) + 1);
@@ -217,6 +222,7 @@ export function snapshotTextExpression(maxItems: number, maxTextLength: number):
   const locatorHintFor = (el) => {
     const role = roleOf(el);
     const name = locatorNameFor(el);
+    if (name.length > ${maxTextLength}) return null;
     const key = roleNameKey(role, name);
     if (!key) return null;
     const matchCount = roleNameCounts.get(key) || 0;
