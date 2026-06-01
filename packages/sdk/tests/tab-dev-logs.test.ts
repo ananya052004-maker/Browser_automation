@@ -80,4 +80,35 @@ describe("consoleLogBufferExpression", () => {
     expect(key.length).toBeLessThanOrEqual(160);
     expect(key).toContain("[truncated");
   });
+
+  it("caps object entry count", () => {
+    const context = makeContext();
+
+    readLogs(context);
+    vm.runInContext("console.log(Object.fromEntries(Array.from({ length: 80 }, (_, index) => ['k' + index, index])));", context);
+    const row = readLogs(context)[0]!.args[0] as Record<string, unknown>;
+
+    expect(Object.keys(row)).toHaveLength(26);
+    expect(row.__truncatedKeys).toBe(true);
+  });
+
+  it("caps nested object depth", () => {
+    const context = makeContext();
+
+    readLogs(context);
+    vm.runInContext("console.log({ a: { b: { c: { d: 1 } } }, list: [[[['deep']]]] });", context);
+    const row = readLogs(context)[0]!.args[0] as { a: { b: { c: unknown } }; list: unknown[] };
+
+    expect(row.a.b.c).toBe("[Object]");
+    expect(row.list[0]).toEqual(["[Array]"]);
+  });
+
+  it("returns only the requested recent entries", () => {
+    const context = makeContext();
+
+    readLogs(context);
+    vm.runInContext("for (let i = 0; i < 12; i += 1) console.log('entry-' + i);", context);
+
+    expect(readLogs(context, 3).map((entry) => entry.text)).toEqual(["entry-9", "entry-10", "entry-11"]);
+  });
 });
