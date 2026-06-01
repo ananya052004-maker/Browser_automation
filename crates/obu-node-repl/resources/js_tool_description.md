@@ -73,10 +73,12 @@ pre-digest the page. Orient with one broad read (a fresh `tab.domSnapshot()`, or
 narrow to the relevant container or a few candidates. Don't re-dump a full snapshot
 every cell, and don't loop per-element reads (`getAttribute`/`innerText`) as a search —
 parse one `domSnapshot()` instead. `tab.snapshotText()` is a capped affordance summary
-(~20 items/category) of clickable/typable chrome — NOT page content (it carries no prose):
-on dense, result-grid, or SPA pages prefer `domSnapshot()` for the full page, or run your
-own `tab.evaluate(...)` query for a scoped slice. It self-describes its compaction —
-`result.meta.truncated` plus per-category `meta.categories.{links,headings,...}.{shown,total}`
+(~20 items/category) of clickable/typable chrome — NOT page content (it carries no prose).
+Its `interactables[]` entries expose role/name/tag/type/href plus enabled/visible flags,
+which is the quickest way to choose a role locator without guessing from prose. On dense,
+result-grid, or SPA pages prefer `domSnapshot()` for the full page, or run your own
+`tab.evaluate(...)` query for a scoped slice. It self-describes its compaction —
+`result.meta.truncated` plus per-category `meta.categories.{links,headings,interactables,...}.{shown,total}`
 — so branch on `meta.truncated` to decide whether to go to `domSnapshot()`/`evaluate()`
 rather than trusting the capped list as complete.
 
@@ -99,7 +101,7 @@ Pick the verb directly instead of round-tripping through `help()`:
 | Intent | Call |
 |---|---|
 | read the page (full fidelity) | `tab.domSnapshot()` — the complete DOM; parse what you need |
-| affordance summary (capped) | `tab.snapshotText()` — clickable/typable chrome, ~20/category, no prose; check `result.meta.truncated` |
+| affordance summary (capped) | `tab.snapshotText()` — clickable/typable chrome, ~20/category, no prose; inspect `interactables[]` and check `result.meta.truncated` |
 | compact interactable node list | `tab.dom_cua.text()` (ids stay valid for `dom_cua` actions) |
 | find an element (preferred) | `tab.getByRole(...)` / `getByLabel(...)` / `getByText(...)` |
 | click / type / fill / press | `locator.click()` / `.type()` / `.fill()` / `.press()` |
@@ -123,6 +125,11 @@ matches):
    locator disambiguates, and keep selectors shallow.
 5. Coordinate or visual targeting (the modality ladder below) — only when no stable
    DOM locator exists.
+
+When a broad locator is ambiguous, do not retry the same selector. Narrow it with
+`.first()`, `.nth(i)`, `.filter({ visible: true })`, a role/name locator, or a
+container scope. If `snapshotText().meta.truncated` is true, inspect
+`snapshotText().interactables` or a scoped `domSnapshot()` before acting.
 
 Modality preference ladder (prefer the highest-fidelity modality that can act on
 the target):

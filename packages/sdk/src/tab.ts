@@ -107,6 +107,17 @@ export type TabSnapshotTextOptions = TabEvaluateOptions & {
   maxTextLength?: number;
 };
 
+export type TabSnapshotInteractable = {
+  role: string;
+  name: string;
+  tag: string;
+  type: string;
+  id: string;
+  href?: string;
+  enabled: boolean;
+  visible: boolean;
+};
+
 export type TabSnapshotTextResult = {
   url: string;
   title: string;
@@ -119,16 +130,20 @@ export type TabSnapshotTextResult = {
   };
   focus?: {
     tag: string;
+    role: string;
     id: string;
     name: string;
     type: string;
     placeholder: string;
     ariaLabel: string;
+    enabled: boolean;
+    visible: boolean;
   } | null;
   headings: Array<{ level: number; text: string }>;
   buttons: string[];
   links: Array<{ text: string; href: string }>;
-  forms: Array<{ label: string; type: string; name: string; placeholder: string }>;
+  forms: Array<{ label: string; role: string; type: string; name: string; placeholder: string; enabled: boolean; visible: boolean }>;
+  interactables?: TabSnapshotInteractable[];
   // Self-describing compaction. Optional because mocked/legacy snapshot results (and the
   // FakeTransports in tests) may omit it; consumers must read `meta?.truncated`.
   meta?: SnapshotTextMeta;

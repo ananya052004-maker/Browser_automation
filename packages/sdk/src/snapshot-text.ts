@@ -39,6 +39,7 @@ export type SnapshotTextMeta = {
     buttons: SnapshotCategoryMeta;
     links: SnapshotCategoryMeta;
     forms: SnapshotCategoryMeta;
+    interactables: SnapshotCategoryMeta;
   };
   /** Present iff `truncated`: tells the agent how to read the full / scoped page. */
   hint?: string;
@@ -69,15 +70,41 @@ export function snapshotTextExpression(maxItems: number, maxTextLength: number):
   };
   const all = (selector) => Array.from(document.querySelectorAll(selector)).filter((el) => !isObuOverlay(el));
   const cap = (arr) => arr.slice(0, ${maxItems});
+  const rectHasArea = (rect) => rect && rect.width > 0 && rect.height > 0;
+  const layoutHasBoxes = (() => {
+    try {
+      const root = document.documentElement;
+      const body = document.body;
+      return Boolean(
+        (root && typeof root.getClientRects === "function" && Array.from(root.getClientRects()).some(rectHasArea)) ||
+        (body && typeof body.getClientRects === "function" && Array.from(body.getClientRects()).some(rectHasArea))
+      );
+    } catch {
+      return false;
+    }
+  })();
+  const isVisible = (el) => {
+    if (!el) return false;
+    for (let current = el; current && current.nodeType === 1; current = current.parentElement) {
+      if (current.hidden || current.getAttribute("aria-hidden") === "true") return false;
+      const view = current.ownerDocument && current.ownerDocument.defaultView;
+      if (view && typeof view.getComputedStyle === "function") {
+        const style = view.getComputedStyle(current);
+        if (style && (style.display === "none" || style.visibility === "hidden")) return false;
+      }
+    }
+    if (!layoutHasBoxes || typeof el.getClientRects !== "function") return true;
+    return Array.from(el.getClientRects()).some(rectHasArea);
+  };
   const isActionableInput = (el) => {
     const type = (el.getAttribute("type") || "").toLowerCase();
     if (type === "hidden") return false;
-    if (el.getAttribute("aria-hidden") === "true") return false;
-    const view = el.ownerDocument && el.ownerDocument.defaultView;
-    if (view && typeof view.getComputedStyle === "function") {
-      const style = view.getComputedStyle(el);
-      if (style && (style.display === "none" || style.visibility === "hidden")) return false;
-    }
+    return isVisible(el);
+  };
+  const isEnabled = (el) => {
+    if (!el) return false;
+    if (el.disabled === true || el.getAttribute("disabled") !== null) return false;
+    if (el.getAttribute("aria-disabled") === "true") return false;
     return true;
   };
   const labelFor = (input) => {
@@ -85,30 +112,101 @@ export function snapshotTextExpression(maxItems: number, maxTextLength: number):
     if (input.getAttribute("aria-label")) return text(input.getAttribute("aria-label"));
     return text(input.getAttribute("name") || input.getAttribute("placeholder") || "");
   };
+  const roleOf = (el) => {
+    const explicit = text(el.getAttribute("role")).split(" ").filter(Boolean)[0];
+    if (explicit) return explicit;
+    const tag = (el.tagName || "").toLowerCase();
+    const type = (el.getAttribute("type") || "").toLowerCase();
+    if (tag === "a" && el.getAttribute("href")) return "link";
+    if (tag === "button") return "button";
+    if (tag === "select") return "combobox";
+    if (tag === "textarea") return "textbox";
+    if (tag === "summary") return "button";
+    if (tag === "input") {
+      if (type === "checkbox") return "checkbox";
+      if (type === "radio") return "radio";
+      if (["button", "submit", "reset", "image"].includes(type)) return "button";
+      if (type === "range") return "slider";
+      if (type === "number") return "spinbutton";
+      if (type === "search") return el.getAttribute("aria-autocomplete") || el.getAttribute("list") ? "combobox" : "searchbox";
+      if (["email", "password", "tel", "text", "url", ""].includes(type)) return "textbox";
+    }
+    return "";
+  };
+  const interactableName = (el) =>
+    cleanText(el) ||
+    text(el.getAttribute("aria-label")) ||
+    (el.labels && el.labels.length ? text(el.labels[0].textContent) : "") ||
+    text(el.getAttribute("alt")) ||
+    text(el.getAttribute("title")) ||
+    text(el.getAttribute("placeholder")) ||
+    text(el.getAttribute("value")) ||
+    text(el.getAttribute("name"));
   const active = document.activeElement && !isObuOverlay(document.activeElement)
     ? {
         tag: text(document.activeElement.tagName.toLowerCase()),
+        role: roleOf(document.activeElement),
         id: text(document.activeElement.id),
         name: text(document.activeElement.getAttribute("name")),
         type: text(document.activeElement.getAttribute("type")),
         placeholder: text(document.activeElement.getAttribute("placeholder")),
         ariaLabel: text(document.activeElement.getAttribute("aria-label")),
+        enabled: isEnabled(document.activeElement),
+        visible: isVisible(document.activeElement),
       }
     : null;
 
   const headingEls = all("h1,h2,h3");
-  const buttonEls = all("button,[role=button],input[type=button],input[type=submit]");
-  const linkEls = all("a[href]");
+  const buttonEls = all("button,[role=button],input[type=button],input[type=submit]").filter(isVisible);
+  const linkEls = all("a[href]").filter(isVisible);
   const formEls = all("input,textarea,select").filter(isActionableInput);
+  const interactableEls = all([
+    "button",
+    "a[href]",
+    "input",
+    "textarea",
+    "select",
+    "summary",
+    "[role=button]",
+    "[role=link]",
+    "[role=menuitem]",
+    "[role=tab]",
+    "[role=checkbox]",
+    "[role=radio]",
+    "[role=combobox]",
+    "[role=searchbox]",
+    "[role=textbox]",
+    "[tabindex]",
+  ].join(",")).filter((el) => {
+    const tag = (el.tagName || "").toLowerCase();
+    const type = (el.getAttribute("type") || "").toLowerCase();
+    if (tag === "input" && type === "hidden") return false;
+    if (isObuOverlay(el)) return false;
+    if (!isVisible(el)) return false;
+    return Boolean(roleOf(el) || interactableName(el));
+  });
 
   const headings = cap(headingEls).map((el) => ({ level: Number(el.tagName.slice(1)), text: cleanText(el) }));
   const buttons = cap(buttonEls).map((el) => cleanText(el) || text(el.value) || text(el.getAttribute("aria-label"))).filter(Boolean);
   const links = cap(linkEls).map((el) => ({ text: cleanText(el) || text(el.getAttribute("aria-label")), href: text(el.href) }));
   const forms = cap(formEls).map((el) => ({
     label: labelFor(el),
+    role: roleOf(el),
     type: text(el.getAttribute("type") || el.tagName.toLowerCase()),
     name: text(el.getAttribute("name")),
     placeholder: text(el.getAttribute("placeholder")),
+    enabled: isEnabled(el),
+    visible: isVisible(el),
+  }));
+  const interactables = cap(interactableEls).map((el) => ({
+    role: roleOf(el),
+    name: interactableName(el),
+    tag: text((el.tagName || "").toLowerCase()),
+    type: text(el.getAttribute("type")),
+    id: text(el.id),
+    ...(el.href ? { href: text(el.href) } : {}),
+    enabled: isEnabled(el),
+    visible: isVisible(el),
   }));
 
   const cat = (shown, total) => ({ shown, total, truncated: shown < total });
@@ -117,8 +215,9 @@ export function snapshotTextExpression(maxItems: number, maxTextLength: number):
     buttons: cat(buttons.length, buttonEls.length),
     links: cat(links.length, linkEls.length),
     forms: cat(forms.length, formEls.length),
+    interactables: cat(interactables.length, interactableEls.length),
   };
-  const truncated = __clipped || categories.headings.truncated || categories.buttons.truncated || categories.links.truncated || categories.forms.truncated;
+  const truncated = __clipped || categories.headings.truncated || categories.buttons.truncated || categories.links.truncated || categories.forms.truncated || categories.interactables.truncated;
   const meta = {
     truncated,
     categories,
@@ -142,6 +241,7 @@ export function snapshotTextExpression(maxItems: number, maxTextLength: number):
     buttons,
     links,
     forms,
+    interactables,
     meta,
   };
 })()

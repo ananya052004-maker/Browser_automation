@@ -632,14 +632,17 @@ impl Dispatcher {
                 .as_ref()
                 .map(|d| summarize_command_value(None, d));
             let message = redact_url_in_message(&error.message, error.data.as_ref());
-            event.insert(
-                "error".to_string(),
-                json!({
-                    "code": &error.code,
-                    "message": message,
-                    "data": data,
-                }),
-            );
+            let mut error_summary = json!({
+                "code": &error.code,
+                "message": message,
+                "data": data,
+            });
+            if let Some(classification) = browser_command_error_classification(error)
+                && let Some(object) = error_summary.as_object_mut()
+            {
+                object.insert("classification".to_string(), classification);
+            }
+            event.insert("error".to_string(), error_summary);
         }
         let nav_status = if response.error.is_some() {
             "error"
@@ -2616,6 +2619,72 @@ fn navigation_event_field(method: &str, status: &str, error_data: Option<&Value>
     Some(Value::Object(nav))
 }
 
+/// Small, queryable failure class for durable `browser_command` rows.
+///
+/// This is deliberately additive: it does not change wire error codes or action
+/// behavior. It lets post-run analysis group recurring agent-operability issues
+/// without parsing redacted human messages from SQLite exports.
+fn browser_command_error_classification(error: &ErrorObject) -> Option<Value> {
+    if let Some(data) = error.data.as_ref()
+        && let Some(resolution) = data.get("resolution").and_then(Value::as_str)
+    {
+        let mut row = serde_json::Map::new();
+        row.insert("kind".to_string(), json!("actionability"));
+        row.insert("resolution".to_string(), json!(resolution));
+        if let Some(state) = data.get("state").and_then(Value::as_str) {
+            row.insert("state".to_string(), json!(state));
+        }
+        if let Some(by) = data.get("by").and_then(Value::as_str) {
+            row.insert("by".to_string(), json!(by));
+        }
+        if let Some(reason) = data.get("reason").and_then(Value::as_str) {
+            row.insert("reason".to_string(), json!(reason));
+        }
+        row.insert(
+            "retry".to_string(),
+            json!(matches!(
+                resolution,
+                "not_visible" | "outside_viewport" | "occluded" | "detached"
+            )),
+        );
+        return Some(Value::Object(row));
+    }
+
+    let message = &error.message;
+    if message.contains("strict mode violation:") {
+        return Some(json!({
+            "kind": "locator_strict_mode",
+            "retry": false,
+            "reason": "multiple_matches",
+        }));
+    }
+    if message.contains("No element matched selector") {
+        return Some(json!({
+            "kind": "locator_no_match",
+            "retry": true,
+            "timedOut": message.contains("timed out"),
+        }));
+    }
+    if message.contains("not owned by this open-browser-use session") {
+        return Some(json!({
+            "kind": "lifecycle_lost_ownership",
+            "retry": true,
+            "reason": "session_changed",
+        }));
+    }
+    if message.contains("native messaging port closed")
+        || message.contains("transport closed")
+        || message.contains("native pipe path unavailable")
+    {
+        return Some(json!({
+            "kind": "transport_closed",
+            "retry": true,
+            "reason": "browser_bridge_closed",
+        }));
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2782,6 +2851,59 @@ mod tests {
         let data = rpc.data.as_ref().expect("nav error has data");
         assert_eq!(data["netError"], json!("net::ERR_X"));
         assert_eq!(data["retryable"], json!(true));
+    }
+
+    #[test]
+    fn browser_command_error_classification_lifts_actionability_resolution() {
+        let error = ErrorObject::new(
+            ErrorCode::Server(ERR_PROTOCOL),
+            "target is not actionable: not enabled",
+        )
+        .with_data(json!({ "resolution": "not_visible", "state": "enabled" }));
+
+        let classification = browser_command_error_classification(&error).expect("classification");
+
+        assert_eq!(classification["kind"], json!("actionability"));
+        assert_eq!(classification["resolution"], json!("not_visible"));
+        assert_eq!(classification["state"], json!("enabled"));
+    }
+
+    #[test]
+    fn browser_command_error_classification_detects_locator_strict_mode() {
+        let error = ErrorObject::new(
+            ErrorCode::Server(ERR_CDP_FAILURE),
+            "cdp failure: Error: strict mode violation: getByText('Trade In') resolved to 16 elements",
+        );
+
+        let classification = browser_command_error_classification(&error).expect("classification");
+
+        assert_eq!(classification["kind"], json!("locator_strict_mode"));
+        assert_eq!(classification["retry"], json!(false));
+    }
+
+    #[test]
+    fn browser_command_error_classification_detects_selector_no_match_timeout() {
+        let error = ErrorObject::new(
+            ErrorCode::Server(obu_wire::error::ERR_TIMEOUT),
+            "timeout: playwright op timed out after 5000ms: cdp failure: Error: No element matched selector",
+        );
+
+        let classification = browser_command_error_classification(&error).expect("classification");
+
+        assert_eq!(classification["kind"], json!("locator_no_match"));
+        assert_eq!(classification["retry"], json!(true));
+        assert_eq!(classification["timedOut"], json!(true));
+    }
+
+    #[test]
+    fn browser_command_error_classification_detects_transport_closed() {
+        let error = ErrorObject::new(ErrorCode::InternalError, "native messaging port closed");
+
+        let classification = browser_command_error_classification(&error).expect("classification");
+
+        assert_eq!(classification["kind"], json!("transport_closed"));
+        assert_eq!(classification["retry"], json!(true));
+        assert_eq!(classification["reason"], json!("browser_bridge_closed"));
     }
 
     #[test]

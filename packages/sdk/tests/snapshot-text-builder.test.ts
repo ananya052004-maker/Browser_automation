@@ -15,7 +15,28 @@ declare function builderResult(): {
   title: string;
   buttons: string[];
   links: { text: string; href: string }[];
-  forms: { label: string; type: string; name: string; placeholder: string }[];
+  forms: { label: string; role: string; type: string; name: string; placeholder: string; enabled: boolean; visible: boolean }[];
+  interactables: {
+    role: string;
+    name: string;
+    tag: string;
+    type: string;
+    id: string;
+    href?: string;
+    enabled: boolean;
+    visible: boolean;
+  }[];
+  focus: {
+    tag: string;
+    role: string;
+    id: string;
+    name: string;
+    type: string;
+    placeholder: string;
+    ariaLabel: string;
+    enabled: boolean;
+    visible: boolean;
+  } | null;
   headings: { level: number; text: string }[];
   meta: {
     truncated: boolean;
@@ -49,6 +70,58 @@ describe("snapshotTextExpression", () => {
     expect(r.forms.map((f) => f.name)).toEqual(["visible"]);
   });
 
+  it("drops inputs hidden by an ancestor", () => {
+    document.body.innerHTML = `
+      <style>.gone{display:none}</style>
+      <div class="gone"><input type="text" name="secret" aria-label="Secret"></div>
+      <input type="text" name="visible" aria-label="Visible">`;
+
+    const r = run();
+
+    expect(r.forms.map((f) => f.name)).toEqual(["visible"]);
+    expect(r.interactables.map((item) => item.name)).not.toContain("Secret");
+  });
+
+  it("marks zero-layout controls invisible when layout boxes are available", () => {
+    document.body.innerHTML = `
+      <input id="zero" type="text" name="zero" aria-label="Zero">
+      <input id="boxed" type="text" name="boxed" aria-label="Boxed">`;
+    const cleanups: Array<() => void> = [];
+    const rect = (width: number, height: number) => ({
+      bottom: height,
+      height,
+      left: 0,
+      right: width,
+      top: 0,
+      width,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    const defineClientRects = (target: Element, value: () => unknown) => {
+      const previous = Object.getOwnPropertyDescriptor(target, "getClientRects");
+      Object.defineProperty(target, "getClientRects", { configurable: true, value });
+      cleanups.push(() => {
+        if (previous) Object.defineProperty(target, "getClientRects", previous);
+        else delete (target as unknown as Record<string, unknown>).getClientRects;
+      });
+    };
+
+    defineClientRects(document.documentElement, () => [rect(800, 600)]);
+    defineClientRects(document.body, () => [rect(800, 600)]);
+    defineClientRects(document.getElementById("zero")!, () => []);
+    defineClientRects(document.getElementById("boxed")!, () => [rect(120, 20)]);
+
+    try {
+      const r = run();
+
+      expect(r.forms.map((f) => f.name)).toEqual(["boxed"]);
+      expect(r.interactables.map((item) => item.name)).toEqual(["Boxed"]);
+    } finally {
+      cleanups.reverse().forEach((cleanup) => cleanup());
+    }
+  });
+
   it("reports per-category totals + truncation when capped", () => {
     document.body.innerHTML = Array.from({ length: 25 }, (_, i) => `<a href="/p${i}">L${i}</a>`).join("");
     const r = run(20, 120);
@@ -71,6 +144,74 @@ describe("snapshotTextExpression", () => {
     document.body.innerHTML = `<a href="/a">${"x".repeat(300)}</a>`;
     const r = run(20, 120);
     expect(r.links[0].text.length).toBe(120);
+    expect(r.meta.truncated).toBe(true);
+  });
+
+  it("adds role and actionability metadata to forms and focus", () => {
+    document.body.innerHTML = `
+      <label for="q">Search Wikipedia</label>
+      <input id="q" type="search" name="search" placeholder="Search Wikipedia">
+      <input type="checkbox" name="wifi" aria-label="Wi-Fi" checked>`;
+    document.getElementById("q")?.focus();
+
+    const r = run();
+
+    expect(r.focus).toMatchObject({
+      tag: "input",
+      role: "searchbox",
+      name: "search",
+      type: "search",
+      enabled: true,
+      visible: true,
+    });
+    expect(r.forms[0]).toMatchObject({
+      label: "Search Wikipedia",
+      role: "searchbox",
+      type: "search",
+      name: "search",
+      enabled: true,
+      visible: true,
+    });
+    expect(r.forms[1]).toMatchObject({
+      label: "Wi-Fi",
+      role: "checkbox",
+      type: "checkbox",
+      name: "wifi",
+      enabled: true,
+      visible: true,
+    });
+  });
+
+  it("returns a capped interactables affordance list with role and actionability", () => {
+    document.body.innerHTML = `
+      <button id="save">Save</button>
+      <a id="compare" href="/compare">Compare models</a>
+      <input id="email" type="email" aria-label="Email address" disabled>`;
+
+    const r = run(2, 120);
+
+    expect(r.interactables).toEqual([
+      {
+        role: "button",
+        name: "Save",
+        tag: "button",
+        type: "",
+        id: "save",
+        enabled: true,
+        visible: true,
+      },
+      {
+        role: "link",
+        name: "Compare models",
+        tag: "a",
+        type: "",
+        id: "compare",
+        href: "http://localhost:3000/compare",
+        enabled: true,
+        visible: true,
+      },
+    ]);
+    expect(r.meta.categories.interactables).toEqual({ shown: 2, total: 3, truncated: true });
     expect(r.meta.truncated).toBe(true);
   });
 });
