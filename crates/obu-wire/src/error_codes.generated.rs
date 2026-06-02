@@ -49,3 +49,5 @@ pub const ERR_DIALOG_REQUIRES_DECISION: i32 = -1203;
 /// Carries structured data { netError, url, retryable } so agents can tell a
 /// retryable site/network failure from a protocol error.
 pub const ERR_NAVIGATION_FAILED: i32 = -1204;
+/// A browser action completed, but an explicit SDK postcondition did not become true.
+pub const ERR_POSTCONDITION_FAILED: i32 = -1205;

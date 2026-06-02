@@ -90,6 +90,9 @@ type WaterRippleFrame = {
 type InputBypassEventFamily = "pointer" | "wheel" | "touch" | "keyboard" | "text";
 
 const SHORT_MOVE_THRESHOLD = 196;
+// Tiny CDP move deltas can arrive repeatedly while the pointer is effectively
+// stationary; snapping them avoids visible decorative wobble.
+const MICRO_MOVE_SNAP_THRESHOLD = 2;
 const RESTING_ROTATION_DEG = -44;
 const ARRIVAL_TIMEOUT_MS = 650;
 const INPUT_BYPASS_DEFAULT_MS = 450;
@@ -241,14 +244,16 @@ function moveCursor(message: CursorMoveMessage): void {
   animationTurnId = message.turnId ?? lastTurnId;
   clearArrivalTimer();
 
-  if (REDUCED_MOTION) {
+  const distance = dist(currentPoint, targetPoint);
+  if (REDUCED_MOTION || distance <= MICRO_MOVE_SNAP_THRESHOLD) {
+    if (animationFrame !== undefined) cancelFrame(animationFrame);
+    animationFrame = undefined;
     currentPoint = targetPoint;
     renderCursor(currentPoint, RESTING_ROTATION_DEG, 1, 1);
     notifyArrived();
     return;
   }
 
-  const distance = dist(currentPoint, targetPoint);
   animationFrom = { ...currentPoint };
   animationTo = { ...targetPoint };
   animationControl = distance > SHORT_MOVE_THRESHOLD ? bezierControl(animationFrom, animationTo) : undefined;
@@ -838,7 +843,7 @@ function sampleScoot(start: Point, end: Point, t: number): Point {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
   const distance = Math.max(1, Math.hypot(dx, dy));
-  const wobble = Math.sin(Math.PI * t) * clamp(distance * 0.035, 3, 9);
+  const wobble = Math.sin(Math.PI * t) * clamp(distance * 0.035, 0, 9);
   return {
     x: base.x + (-dy / distance) * wobble,
     y: base.y + (dx / distance) * wobble,

@@ -31,12 +31,12 @@ for (const code of oracle.requiredProductErrors) {
   assert.equal(productErrorCodes.has(code), true, `product error oracle missing implementation: ${code}`);
 }
 
-const sdkErrors = await text("packages/sdk/src/errors.ts");
+const sdkErrors = await text("packages/sdk/src/error_codes.generated.ts");
 for (const constant of oracle.requiredRpcErrorConstants) {
   assert.match(sdkErrors, new RegExp(`export const ${constant}\\b`), `SDK error constant missing: ${constant}`);
 }
 
-const rustErrors = await text("crates/obu-wire/src/error.rs");
+const rustErrors = await text("crates/obu-wire/src/error_codes.generated.rs");
 for (const constant of oracle.requiredRpcErrorConstants) {
   assert.match(rustErrors, new RegExp(`pub const ${constant}\\b`), `wire error constant missing: ${constant}`);
 }

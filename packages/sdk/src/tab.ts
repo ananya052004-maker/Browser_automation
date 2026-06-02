@@ -21,6 +21,7 @@ import { TabDev } from "./tab-dev.js";
 import { TabDomCua, type DomCuaActionResult } from "./tab-dom-cua.js";
 import { TabPlaywright } from "./tab-playwright.js";
 import { TabFlows } from "./tab-flows.js";
+import { TabPostconditions } from "./tab-postconditions.js";
 import { TabRead } from "./tab-read.js";
 import type { EvaluateTruncationSummary } from "./tab-read.js";
 import { getSessionLifecycleContext, withSessionMeta } from "./session-meta.js";
@@ -107,6 +108,30 @@ export type TabSnapshotTextOptions = TabEvaluateOptions & {
   maxTextLength?: number;
 };
 
+export type TabSnapshotLocatorRecipe = {
+  kind: "role" | "testid" | "css";
+  expression: string;
+  matchCount: number;
+  unique: boolean;
+  evidence: string;
+  ambiguity?: string;
+};
+
+export type TabSnapshotLocatorHint = TabSnapshotLocatorRecipe;
+
+export type TabSnapshotInteractable = {
+  role: string;
+  name: string;
+  tag: string;
+  type: string;
+  id: string;
+  href?: string;
+  enabled: boolean;
+  visible: boolean;
+  locatorRecipes?: TabSnapshotLocatorRecipe[];
+  locatorHint?: TabSnapshotLocatorHint;
+};
+
 export type TabSnapshotTextResult = {
   url: string;
   title: string;
@@ -119,20 +144,29 @@ export type TabSnapshotTextResult = {
   };
   focus?: {
     tag: string;
+    role: string;
     id: string;
     name: string;
     type: string;
     placeholder: string;
     ariaLabel: string;
+    enabled: boolean;
+    visible: boolean;
   } | null;
   headings: Array<{ level: number; text: string }>;
   buttons: string[];
   links: Array<{ text: string; href: string }>;
-  forms: Array<{ label: string; type: string; name: string; placeholder: string }>;
+  forms: Array<{ label: string; role: string; type: string; name: string; placeholder: string; enabled: boolean; visible: boolean }>;
+  interactables?: TabSnapshotInteractable[];
   // Self-describing compaction. Optional because mocked/legacy snapshot results (and the
   // FakeTransports in tests) may omit it; consumers must read `meta?.truncated`.
   meta?: SnapshotTextMeta;
 };
+
+export type TabAffordancesResult = Pick<
+  TabSnapshotTextResult,
+  "url" | "title" | "viewport" | "focus" | "interactables" | "meta"
+>;
 
 export type TabObserveMode = "compact" | "actionable" | "visual";
 
@@ -317,6 +351,7 @@ export class Tab {
   readonly dev: TabDev;
   readonly dom_cua: TabDomCua;
   readonly flows: TabFlows;
+  readonly postconditions: TabPostconditions;
   readonly read: TabRead;
   readonly playwright: TabPlaywright;
   readonly metadata: TabMetadata;
@@ -371,6 +406,7 @@ export class Tab {
     this.dev = new TabDev(transport, guards, id, ensureCommandable);
     this.dom_cua = new TabDomCua(transport, guards, id, ensureCommandable);
     this.playwright = new TabPlaywright(transport, guards, id, ensureCommandable);
+    this.postconditions = new TabPostconditions({ url: () => this.url() });
   }
 
   async observe(opts: TabObserveOptions = {}): Promise<TabObservation> {
@@ -857,6 +893,18 @@ export class Tab {
       );
     }
     return result as TabSnapshotTextResult;
+  }
+
+  async affordances(opts: TabSnapshotTextOptions = {}): Promise<TabAffordancesResult> {
+    const snapshot = await this.snapshotText(opts);
+    return {
+      url: snapshot.url,
+      title: snapshot.title,
+      ...(snapshot.viewport !== undefined ? { viewport: snapshot.viewport } : {}),
+      ...(snapshot.focus !== undefined ? { focus: snapshot.focus } : {}),
+      interactables: snapshot.interactables ?? [],
+      ...(snapshot.meta !== undefined ? { meta: snapshot.meta } : {}),
+    };
   }
 
   async domSnapshot(opts: { timeout?: number } = {}): Promise<DomSnapshotResult> {

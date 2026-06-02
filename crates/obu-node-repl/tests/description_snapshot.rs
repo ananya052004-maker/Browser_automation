@@ -5,6 +5,24 @@ fn js_tool_description() {
 }
 
 #[test]
+fn js_tool_description_discourages_blank_bootstrap_tabs() {
+    let body = include_str!("../resources/js_tool_description.md");
+    let normalized = body.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        normalized.contains("create the first task tab with the target URL"),
+        "js tool description should teach agents to create the first task tab with the target URL"
+    );
+    assert!(
+        normalized.contains("Do not create or attach an intermediate `about:blank` tab"),
+        "js tool description should explicitly discourage blank bootstrap tabs"
+    );
+    assert!(
+        !body.contains("browser.tabs.create(\"about:blank\")"),
+        "js tool description must not recommend visible about:blank bootstrap tabs"
+    );
+}
+
+#[test]
 fn agent_browser_mcp_usage_fast_work_rules() {
     // docs/agent-browser-mcp-usage.md is gitignored (developer-local), so it is
     // absent on clean checkouts/CI. Validate it only when present.

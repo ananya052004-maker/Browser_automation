@@ -195,9 +195,22 @@ where
         tokio::select! {
             result = &mut operation => return result,
             event = events.recv() => {
-                let event = event.map_err(|error| {
-                    HostError::Protocol(format!("{event_bus_name} event bus closed: {error}"))
-                })?;
+                let event = match event {
+                    Ok(event) => event,
+                    Err(broadcast::error::RecvError::Lagged(dropped)) => {
+                        tracing::warn!(
+                            dropped,
+                            event_bus_name,
+                            "dialog event receiver lagged; resynchronizing from retained events"
+                        );
+                        continue;
+                    }
+                    Err(error @ broadcast::error::RecvError::Closed) => {
+                        return Err(HostError::Protocol(format!(
+                            "{event_bus_name} event bus closed: {error}"
+                        )));
+                    }
+                };
                 let Some(event) = match_event(event) else {
                     continue;
                 };
@@ -439,5 +452,56 @@ mod tests {
         assert_eq!(recent.len(), 1);
         assert_eq!(recent[0]["code"], "dialog_requires_decision");
         assert_eq!(recent[0]["outcome"], "failed");
+    }
+
+    #[tokio::test]
+    async fn dialog_policy_loop_ignores_lagged_event_receiver_when_operation_completes() {
+        let context = DialogContext {
+            tab_id: "tab-1".into(),
+            operation: Some("Runtime.evaluate".into()),
+            ..DialogContext::default()
+        };
+        let store = DialogTraceStore::default();
+        let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+        let (event_tx, events) = broadcast::channel(1);
+        event_tx
+            .send(DialogPolicyEvent::Open(JavaScriptDialog {
+                dialog_type: "alert".into(),
+                message: "missed-1".into(),
+            }))
+            .unwrap();
+        event_tx
+            .send(DialogPolicyEvent::Open(JavaScriptDialog {
+                dialog_type: "alert".into(),
+                message: "missed-2".into(),
+            }))
+            .unwrap();
+
+        let complete_operation = async {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            done_tx.send(()).unwrap();
+        };
+        let loop_result = run_broadcast_dialog_policy_loop(
+            &context,
+            Some(&store),
+            async {
+                done_rx.await.unwrap();
+                Ok("ok")
+            },
+            events,
+            "test",
+            Some,
+            |_params| std::future::ready(Ok(())),
+        );
+
+        let (_, result) = tokio::join!(complete_operation, loop_result);
+
+        assert_eq!(result.unwrap(), "ok");
+        let recent = store.diagnostics()["recent"].as_array().unwrap().clone();
+        assert!(recent.len() <= 1);
+        if let Some(row) = recent.first() {
+            assert_eq!(row["code"], "dialog_handled");
+            assert_eq!(row["outcome"], "continued");
+        }
     }
 }

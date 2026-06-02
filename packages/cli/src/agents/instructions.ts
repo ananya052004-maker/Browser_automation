@@ -33,6 +33,8 @@ export const PRIMARY_BROWSER_INSTRUCTION = [
   "keep browser state continuous with persistent `globalThis.browser` / `globalThis.tab`",
   "handles. Prefer `browser.tabs.current()` for same-task continuation, and do not",
   "open repeated search tabs once a page has an authoritative success/cart/result signal.",
+  "For new workflows, create the first task tab with the target URL and avoid opening",
+  "`about:blank` as a bootstrap step.",
   "Use `browser.yieldControl()` / `browser.resumeControl()` for human takeover without",
   "destroying the current task tab.",
   "run `~/.obu/bin/obu verify --agent=<agent-id> --browser=<browser> --channel=<channel> --extension-id=<extension-id>` if setup appears stale.",

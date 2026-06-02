@@ -12,7 +12,7 @@ Browser:
   .profileMetadata -> non-sensitive browser profile identity; raw profile paths are diagnostics-only
   .deliverables() -> finalized durable tabs, with .claim()
   .ensureReady() -> compact backend/capability/diagnostic summary
-  .tabs.create(urlOrOptions?) -> Tab   accepts "https://..." or {url}; defaults to "about:blank"
+  .tabs.create(urlOrOptions?) -> Tab   accepts "https://..." or {url}; create the first task tab with the target URL to avoid an intermediate about:blank tab
   .tabs.current() -> current session-owned task tab, if any
   .tabs.selected() -> browser-visible selected tab or UserTabRef when claim/resume is required
   .tabs.list() -> Tab[]
@@ -41,10 +41,12 @@ Tab:
   .playwright.elementInfo({x,y}) / .playwright.elementScreenshot({x,y}) -> point-level inspection
   .evaluate(expressionOrFn, {maxJsonBytes?}) -> capped JSON-safe page result
   .snapshotText({maxItems?, maxTextLength?}) -> capped text summary (~20 items/category; prefer domSnapshot on dense/SPA pages)
+  .affordances({maxItems?, maxTextLength?}) -> interactable locator recipes with uniqueness metadata
+  .postconditions.url()/visible()/hidden()/text()/count()/custom() -> explicit action postcondition checks
   .cua.click() / .dblclick() / .scroll() / .type() / .keypress() / .drag() / .dragPath() / .move() / .download_media() / .get_visible_screenshot()
   .clipboard.readText() / .writeText() / .read() / .write()
   .dom_cua.get_visible_dom({format:"text"}) / .dom_cua.text() -> LLM-readable visible DOM-CUA
-  .dev.cdp(method, params)
+  .dev.cdp(method, params) / .dev.events({methods?, maxEntries?, clear?}) / .dev.logs({maxEntries?, clear?}) -> host/page dev diagnostics
   .attach() / .detach()
 
 Locator:
@@ -54,7 +56,7 @@ Locator:
   .all() -> Locator[] with batched collection reads for text and attributes
   .selectOption() / .check() / .uncheck() / .setChecked() / .screenshot() -> Image / .download_media()
   .getByRole() / .getByText() / .getByLabel() / .getByPlaceholder() / .getByTestId()
-  .first() / .last() / .nth(i) / .and() / .or() / .filter({has, hasText}) / .locator(sub)
+  .first() / .last() / .nth(i) only after count() or scoped evidence / .and() / .or() / .filter({has, hasText}) / .locator(sub)
   .frameLocator(sel)
 
 display(value): calls the kernel-locked display global.

@@ -27,9 +27,21 @@ describe("help", () => {
     expect(help).toContain(".dom_cua.text()");
     expect(help).toContain(".cua.click");
     expect(help).toContain(".dev.cdp");
+    expect(help).toContain(".dev.events");
+    expect(help).toContain(".affordances");
+    expect(help).toContain(".postconditions.url()");
     expect(help).toContain(".getByRole");
     expect(help).toContain(".all() -> Locator[] with batched collection reads");
+    expect(help).toContain("only after count() or scoped evidence");
     expect(help).toContain("display(value)");
+  });
+
+  it("does not steer agents toward about:blank bootstrap tabs", () => {
+    const help = renderHelp();
+
+    expect(help).toContain("create the first task tab with the target URL");
+    expect(help).toContain("avoid an intermediate about:blank tab");
+    expect(help).not.toContain("defaults to \"about:blank\"");
   });
 
   it("is returned by Agent.help", () => {
@@ -45,10 +57,13 @@ describe("help", () => {
 
   it("keeps overview docs on the safe user-tab discovery surface", async () => {
     const sdkReadme = await readFile(new URL("../README.md", import.meta.url), "utf8");
+    const normalizedReadme = sdkReadme.replace(/\s+/g, " ");
 
     expect(sdkReadme).toContain("browser.tabs.current()");
     expect(sdkReadme).toContain("browser.tabs.selected()");
     expect(sdkReadme).toContain("browser.user.discoverTabs()");
+    expect(normalizedReadme).toContain("create the first task tab with the target URL");
+    expect(normalizedReadme).toContain("avoid an intermediate `about:blank` tab");
     expect(sdkReadme).not.toContain("browser.user.openTabs/history/claimTab");
     expect(sdkReadme).not.toContain("browser.user.openTabs()` |");
 

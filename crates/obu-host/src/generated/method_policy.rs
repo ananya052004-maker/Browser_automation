@@ -219,6 +219,7 @@ pub const METHOD_POLICY_CLASSIFICATIONS: &[(&str, MethodPolicyKind)] = &[
     (methods::TAB_CONTENT_EXPORT, MethodPolicyKind::CurrentOrigin),
     (methods::TAB_EVALUATE, MethodPolicyKind::CurrentOrigin),
     (methods::TAB_SNAPSHOT_TEXT, MethodPolicyKind::CurrentOrigin),
+    (methods::TAB_DEV_EVENTS, MethodPolicyKind::AlwaysAllowed),
     (methods::TAB_URL, MethodPolicyKind::CurrentOrigin),
     (methods::TAB_TITLE, MethodPolicyKind::CurrentOrigin),
 ];

@@ -81,7 +81,17 @@ impl ActionPointResolution {
             ),
             Self::NotVisible { state } => (
                 format!("target is not actionable: not {state}"),
-                json!({ "resolution": RESOLUTION_NOT_VISIBLE, "state": state }),
+                json!({
+                    "resolution": RESOLUTION_NOT_VISIBLE,
+                    // Backward compatible: existing clients read `state`.
+                    "state": state,
+                    // Agent-readable: this is the missing actionability check,
+                    // not a claim that the element's current state is visible.
+                    "missing_state": state,
+                    "state_meaning": "missing_actionability_state",
+                    "next_action": "wait_or_reobserve",
+                    "retry": true,
+                }),
             ),
             Self::Detached => (
                 "target detached from the DOM".to_string(),
@@ -168,6 +178,10 @@ mod tests {
         let data = rpc_data(error);
         assert_eq!(data["resolution"], RESOLUTION_NOT_VISIBLE);
         assert_eq!(data["state"], "visible");
+        assert_eq!(data["missing_state"], "visible");
+        assert_eq!(data["state_meaning"], "missing_actionability_state");
+        assert_eq!(data["next_action"], "wait_or_reobserve");
+        assert_eq!(data["retry"], true);
     }
 
     #[test]

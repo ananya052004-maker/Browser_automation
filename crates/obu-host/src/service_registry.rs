@@ -318,6 +318,19 @@ impl ServiceRegistry {
             .cloned())
     }
 
+    /// Return the SDK-facing tab id for an attached CDP session id.
+    pub fn tab_id_for_cdp_session(&self, cdp_session_id: &str) -> Result<Option<TabId>> {
+        Ok(self
+            .inner
+            .read()
+            .map_err(|_| HostError::Protocol("registry poisoned".into()))?
+            .tab_sessions
+            .tabs
+            .values()
+            .find(|record| record.cdp_session_id.as_deref() == Some(cdp_session_id))
+            .map(|record| record.id.clone()))
+    }
+
     /// List tab records.
     pub fn list(&self) -> Result<Vec<TabRecord>> {
         Ok(self
@@ -1446,6 +1459,30 @@ mod tests {
 
         let counts = registry.lifecycle_counts().unwrap();
         assert_eq!(counts.stale_file_choosers, MAX_STALE_DIAGNOSTICS_PER_KIND);
+    }
+
+    #[test]
+    fn finds_tab_id_for_cdp_session() {
+        let registry = ServiceRegistry::default();
+        registry
+            .insert(TabRecord {
+                id: TabId::new("tab-1"),
+                session_id: Some("obu-session".into()),
+                target_id: "target-1".into(),
+                url: "https://example.test".into(),
+                title: "Example".into(),
+                origin: TabOrigin::Agent,
+                status: TabStatus::Active,
+                attached: true,
+                cdp_session_id: Some("cdp-session-1".into()),
+            })
+            .unwrap();
+
+        assert_eq!(
+            registry.tab_id_for_cdp_session("cdp-session-1").unwrap(),
+            Some(TabId::new("tab-1"))
+        );
+        assert_eq!(registry.tab_id_for_cdp_session("missing").unwrap(), None);
     }
 
     fn tab_record(id: TabId) -> TabRecord {

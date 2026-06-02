@@ -18,6 +18,7 @@
     { "constant": "ERR_CDP_FAILURE", "code": -1201, "doc": ["CDP command failed."] },
     { "constant": "ERR_TAB_NOT_ATTACHED", "code": -1202, "doc": ["Tab has not been attached."] },
     { "constant": "ERR_DIALOG_REQUIRES_DECISION", "code": -1203, "doc": ["Native browser dialog needs an explicit user/agent decision."] },
-    { "constant": "ERR_NAVIGATION_FAILED", "code": -1204, "doc": ["Navigation failed at the network layer (connection reset, DNS, TLS, refused).", "", "Carries structured data { netError, url, retryable } so agents can tell a", "retryable site/network failure from a protocol error."] }
+    { "constant": "ERR_NAVIGATION_FAILED", "code": -1204, "doc": ["Navigation failed at the network layer (connection reset, DNS, TLS, refused).", "", "Carries structured data { netError, url, retryable } so agents can tell a", "retryable site/network failure from a protocol error."] },
+    { "constant": "ERR_POSTCONDITION_FAILED", "code": -1205, "doc": ["A browser action completed, but an explicit SDK postcondition did not become true."] }
   ]
 }

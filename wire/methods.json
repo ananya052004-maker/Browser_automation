@@ -88,6 +88,7 @@
     { "constant": "TAB_CONTENT_EXPORT", "name": "tab_content_export", "policy": "current-origin", "family": "tab", "support": { "cdp": "implemented", "webextension": "implemented" } },
     { "constant": "TAB_EVALUATE", "name": "tab_evaluate", "policy": "current-origin", "family": "tab", "support": { "cdp": "implemented", "webextension": "implemented" } },
     { "constant": "TAB_SNAPSHOT_TEXT", "name": "tab_snapshot_text", "policy": "current-origin", "family": "tab", "support": { "cdp": "implemented", "webextension": "implemented" } },
+    { "constant": "TAB_DEV_EVENTS", "name": "tab_dev_events", "policy": "always-allowed", "family": "tab", "support": { "cdp": "implemented", "webextension": "implemented" } },
     { "constant": "TAB_URL", "name": "tab_url", "policy": "current-origin", "family": "tab", "support": { "cdp": "implemented", "webextension": "implemented" } },
     { "constant": "TAB_TITLE", "name": "tab_title", "policy": "current-origin", "family": "tab", "support": { "cdp": "implemented", "webextension": "implemented" } }
   ]

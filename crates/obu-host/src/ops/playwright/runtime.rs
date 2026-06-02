@@ -1767,6 +1767,10 @@ mod tests {
             } => {
                 assert_eq!(data["resolution"], "not_visible");
                 assert_eq!(data["state"], "visible");
+                assert_eq!(data["missing_state"], "visible");
+                assert_eq!(data["state_meaning"], "missing_actionability_state");
+                assert_eq!(data["next_action"], "wait_or_reobserve");
+                assert_eq!(data["retry"], true);
             }
             other => panic!("expected typed not_visible rpc error, got {other:?}"),
         }
@@ -1873,6 +1877,10 @@ mod tests {
             } => {
                 assert_eq!(data["resolution"], "not_visible");
                 assert_eq!(data["state"], "visible");
+                assert_eq!(data["missing_state"], "visible");
+                assert_eq!(data["state_meaning"], "missing_actionability_state");
+                assert_eq!(data["next_action"], "wait_or_reobserve");
+                assert_eq!(data["retry"], true);
             }
             other => panic!("expected typed not_visible rpc error, got {other:?}"),
         }

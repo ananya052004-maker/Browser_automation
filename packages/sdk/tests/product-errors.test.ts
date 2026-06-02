@@ -5,6 +5,7 @@ import {
   ERR_DISALLOWED,
   ERR_NO_BACKEND,
   ERR_NOT_IMPLEMENTED,
+  ERR_POSTCONDITION_FAILED,
   ERR_TIMEOUT,
   ERR_TRANSPORT_CLOSED,
   ObuError,
@@ -25,6 +26,7 @@ describe("product error matrix", () => {
     expect(productErrorForRpcCode(ERR_NO_BACKEND)?.code).toBe("no_backend");
     expect(productErrorForRpcCode(ERR_DIALOG_REQUIRES_DECISION)?.code).toBe("dialog_requires_decision");
     expect(productErrorForRpcCode(ERR_DISALLOWED)?.code).toBe("disallowed_command");
+    expect(productErrorForRpcCode(ERR_POSTCONDITION_FAILED)?.code).toBe("postcondition_failed");
     expect(productErrorForRpcCode(ERR_NOT_IMPLEMENTED)).toBeUndefined();
 
     const data = productErrorData("dialog_requires_decision", {
@@ -41,6 +43,23 @@ describe("product error matrix", () => {
       code: ERR_DIALOG_REQUIRES_DECISION,
       data,
       product_error: productErrorByCode("dialog_requires_decision"),
+    });
+
+    const postconditionData = productErrorData("postcondition_failed", {
+      condition: "url",
+      expected: "https://example.test/done",
+      actual: "https://example.test/cart",
+    });
+    const postconditionError = new ObuError(
+      ERR_POSTCONDITION_FAILED,
+      "postcondition failed: url",
+      postconditionData,
+    );
+    expect(postconditionError.productError?.code).toBe("postcondition_failed");
+    expect(postconditionError.toJSON()).toMatchObject({
+      code: ERR_POSTCONDITION_FAILED,
+      data: postconditionData,
+      product_error: productErrorByCode("postcondition_failed"),
     });
   });
 });

@@ -97,6 +97,7 @@ export const METHOD_CLASSIFICATION: Readonly<Record<string, MethodClassification
   [M.TAB_CONTENT_EXPORT]: "current-origin",
   [M.TAB_EVALUATE]: "current-origin",
   [M.TAB_SNAPSHOT_TEXT]: "current-origin",
+  [M.TAB_DEV_EVENTS]: "always-allowed",
   [M.TAB_URL]: "current-origin",
   [M.TAB_TITLE]: "current-origin",
 });

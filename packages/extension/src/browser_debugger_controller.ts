@@ -67,6 +67,14 @@ export class BrowserDebuggerController {
     await this.withDebuggerLock(tabId, async () => {
       if (session.attachedTabIds.has(tabId)) return;
       await this.options.attachDebugger(tabId);
+      for (const method of ["Runtime.enable", "Log.enable"]) {
+        try {
+          await this.options.sendDebuggerCommand(tabId, method, {});
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          this.options.appendDebugLog("warn", "debugger.devEvents.enable.failed", { tabId, method, message });
+        }
+      }
       session.attachedTabIds.add(tabId);
     });
   }

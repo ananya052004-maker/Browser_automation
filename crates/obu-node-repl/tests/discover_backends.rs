@@ -62,6 +62,18 @@ async fn browser_status_reports_missing_sdk_and_no_backend() {
     assert_eq!(status["kernel_lifecycle"]["generation"], json!(0));
     assert_eq!(status["backends"], json!([]));
     assert_eq!(status["product_error"]["code"], json!("setup_missing"));
+    assert_eq!(status["summary"]["actionable"], json!(false));
+    assert_eq!(status["summary"]["state"], json!("blocked"));
+    assert_eq!(status["summary"]["host"]["state"], json!("missing_sdk"));
+    assert_eq!(
+        status["summary"]["extension"]["state"],
+        json!("unavailable")
+    );
+    assert_eq!(
+        status["summary"]["transport"]["state"],
+        json!("unavailable")
+    );
+    assert_eq!(status["summary"]["next_step"]["kind"], json!("run_verify"));
     assert_eq!(
         status["product_error"]["next_action"]["kind"],
         json!("run_verify")
@@ -101,6 +113,33 @@ async fn browser_status_reports_available_sdk_without_backend_as_popup_boundary(
             "obu verify --agent=<agent-id> --browser=<browser> --channel=<extension-channel> --extension-id=<extension-id>"
         )
     );
+}
+
+#[tokio::test]
+async fn browser_status_summary_reports_ready_webextension_backend() {
+    let sdk_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("sdk-good");
+    let mut options = ManagerOptions::for_tests();
+    options.module_dirs.push(sdk_dir);
+    options.trust_all = true;
+    options.backends.push(DiscoveredBackend {
+        kind: "webextension".to_string(),
+        name: "chrome".to_string(),
+        socket_path: "/tmp/obu/test.sock".to_string(),
+        metadata: Some(json!({ "safe": true })),
+    });
+    let manager = JsRuntimeManager::new(options).await.unwrap();
+
+    let status = manager.browser_status().await.unwrap();
+
+    assert_eq!(status["summary"]["actionable"], json!(true));
+    assert_eq!(status["summary"]["state"], json!("ready"));
+    assert_eq!(status["summary"]["host"]["state"], json!("ready"));
+    assert_eq!(status["summary"]["extension"]["state"], json!("connected"));
+    assert_eq!(status["summary"]["transport"]["state"], json!("connected"));
+    assert_eq!(status["summary"]["next_step"]["kind"], json!("use_js"));
 }
 
 #[tokio::test]
