@@ -162,10 +162,13 @@ affordanceGraph: ObservationSectionStatus;
 `ObservationLifecycle` gains:
 
 ```ts
-affordanceGraphRevision?: string;
+affordanceSemanticRevision?: string;
+affordanceLocatorRevision?: string;
+affordanceGeometryRevision?: string;
+affordanceDiagnosticsRevision?: string;
 ```
 
-V1 should keep the default off unless the agent explicitly requests it. After validation, `mode: "actionable"` may include the graph by default if token and latency budgets are acceptable.
+V1 should keep the default off unless the agent explicitly requests it. Only after Phase 2 hybrid-snapshot validation and prompt/playbook validation may `mode: "actionable"` include the graph by default, and only if token and latency budgets are acceptable.
 
 ### 6.2 Direct graph read
 
@@ -173,21 +176,45 @@ Add:
 
 ```ts
 await tab.affordanceGraph({
-  scope?: string;
+  scope?: AffordanceGraphScope;
   ignoreSelectors?: string[];
   includeIframes?: boolean;
   includeDomCua?: boolean;
   includeScreenshot?: boolean;
+  actionable?: boolean;
   maxNodes?: number;
   timeout?: number;
 });
+
+type AffordanceGraphScope =
+  | { kind: "locator"; selector: string }
+  | { kind: "frame-locator"; frameSelector: string; selector?: string }
+  | { kind: "xpath"; expression: string };
 ```
 
-This direct method is useful when the agent wants a graph without the full `TabObservation` envelope. Internally it should still allocate or accept an observation id when graph nodes contain action-bound DOM-CUA targets.
+Scope grammar must not introduce a third selector dialect:
+
+- `kind: "locator"` uses the same selector syntax accepted by `tab.locator(selector)`.
+- `kind: "frame-locator"` maps to the existing `tab.frameLocator(frameSelector).locator(selector)` model.
+- `kind: "xpath"` is allowed only once the host hybrid snapshot substrate exists, because XPath needs the same frame/deep-locator semantics as the encoded-id map.
+
+This direct method is useful when the agent wants only the graph surface, but it must still preserve observation semantics. It returns a graph observation envelope, not a bare graph:
+
+```ts
+export type TabAffordanceGraphObservation = {
+  observationId: string;
+  createdAt: number;
+  lifecycle: ObservationLifecycle;
+  sections: { affordanceGraph: ObservationSectionStatus };
+  graph: TabAffordanceGraph;
+};
+```
+
+When `actionable: false`, the graph may omit DOM-CUA and coordinate locators and can be treated as read-only. When `actionable !== false`, the method must allocate an observation id and bind any DOM-CUA or coordinate locators to that id and lifecycle.
 
 ### 6.3 Future graph action target
 
-Defer until graph quality is validated:
+Defer until the Phase 2 hybrid substrate is validated:
 
 ```ts
 await tab.act.click({
@@ -218,7 +245,14 @@ export type TabAffordanceGraph = {
     shown: number;
     total?: number;
     truncated: boolean;
-    revision: string;
+    revisions: {
+      semantic: string;
+      locator?: string;
+      geometry?: string;
+      visual?: string;
+      diagnostics?: string;
+    };
+    executableBridge: "none" | "partial" | "complete";
     sources: Array<"a11y" | "dom-index" | "dom-cua" | "snapshot-text" | "visual">;
   };
 };
@@ -270,12 +304,14 @@ export type AffordanceNode = {
     visual?: Record<string, unknown>;
   };
   confidence: {
-    semantic: number;
-    locator: number;
-    actionability: number;
+    semantic: EvidenceConfidence;
+    locator: EvidenceConfidence;
+    actionability: EvidenceConfidence;
   };
   diagnostics?: string[];
 };
+
+export type EvidenceConfidence = "high" | "medium" | "low" | "unknown";
 ```
 
 ### 7.3 Locator recipes
@@ -287,7 +323,7 @@ export type AffordanceLocatorRecipe =
       expression: string;
       matchCount?: number;
       unique?: boolean;
-      confidence: number;
+      confidence: EvidenceConfidence;
       evidence: string;
     }
   | {
@@ -295,14 +331,14 @@ export type AffordanceLocatorRecipe =
       expression: string;
       matchCount?: number;
       unique?: boolean;
-      confidence: number;
+      confidence: EvidenceConfidence;
       evidence: string;
     }
   | {
       kind: "dom-cua";
       nodeId: string;
       observationId: string;
-      confidence: number;
+      confidence: EvidenceConfidence;
       evidence: string;
     }
   | {
@@ -312,12 +348,14 @@ export type AffordanceLocatorRecipe =
       annotationId?: string;
       visualRevision?: string;
       annotationRevision?: string;
-      confidence: number;
+      confidence: EvidenceConfidence;
       evidence: string;
     };
 ```
 
 Do not collapse this to one selector. A graph node should expose alternatives and confidence.
+
+Confidence is ordinal and route-local. It must not be treated as a globally comparable floating-point score across locator, DOM-CUA, and coordinate routes. Resolver ranking is defined separately in Section 8.3.
 
 ### 7.4 Frames, action hints, and diagnostics
 
@@ -349,6 +387,10 @@ export type AffordanceActionHint =
 export type AffordanceGraphDiagnostics = {
   advisories: string[];
   sourceErrors: Record<string, string>;
+  sourceStatus: Record<
+    "a11y" | "dom-index" | "dom-cua" | "snapshot-text" | "visual" | "frame-merge",
+    "present" | "partial" | "unsupported" | "failed" | "omitted"
+  >;
   degradedFrames: AffordanceFrame[];
   locatorAmbiguities: Array<{
     nodeId: string;
@@ -388,7 +430,7 @@ export type BlockerSignal = {
     | "browser_error_page"
     | "download_or_filechooser"
     | "unknown_blocker";
-  confidence: number;
+  confidence: EvidenceConfidence;
   nodeIds?: string[];
   evidence: string[];
   recommendedAgentAction?: string;
@@ -399,33 +441,39 @@ Blocker detection is diagnostic only. The agent decides what to do.
 
 ## 8. Capture Pipeline
 
-### 8.1 V1: SDK graph composer
+### 8.1 V1: SDK read-only graph preview
 
 Use existing OBU surfaces:
 
 - `snapshotText()` for locator recipes and coarse interactables.
-- `dom_cua.get_visible_dom({ format: "json" | "compact_text" })` for visible nodes, geometry, and action-bound `node_id`s.
+- `dom_cua.get_visible_dom({ format: "json" | "compact_text" })` for visible nodes, geometry, and observation-bound DOM-CUA `node_id`s when an observation id is available.
 - `domSnapshot()` for semantic ARIA outline.
 - `screenshot` / visual annotations when requested.
 
-V1 does not require a new host method. It creates a graph good enough to validate:
+V1 does not require a new host method, but it is explicitly a preview layer. It must not claim the full Stagehand-style semantic-node-to-executable-target invariant because current `domSnapshot()` strips Playwright ARIA refs and cannot map ARIA lines back to backend nodes. V1 graph metadata must therefore set:
+
+```ts
+meta.executableBridge = "none" | "partial";
+```
+
+V1 validates only:
 
 - Does graph outline improve LLM navigation decisions?
-- Does node evidence reduce weak-selector failure?
+- Does combining existing evidence reduce weak-selector guessing in prompts?
 - Does blocker evidence help without automatic behavior?
 - Are token and latency budgets acceptable?
 
-Known V1 limitation: `domSnapshot()` currently strips Playwright ARIA refs, so it does not provide stable node ids by itself. V1 can still expose it as semantic outline evidence, while node ids come mostly from DOM-CUA and snapshotText locator recipes.
+V1 must label nodes by source:
 
-### 8.2 V2: host hybrid snapshot method
+- `snapshot-text:*` for flattened interactables from `snapshotText`.
+- `dom-cua:*` for visible DOM-CUA nodes.
+- `aria-line:*` for read-only semantic outline rows from `domSnapshot`.
 
-Add a host method, tentatively:
+Only `dom-cua:*` nodes can carry DOM-CUA action-bound recipes, and only when bound to a current observation id. `aria-line:*` nodes are read-only evidence until Phase 2.
 
-```text
-TAB_AFFORDANCE_GRAPH
-```
+### 8.2 V2: minimal host hybrid snapshot method
 
-or split lower-level:
+Add a lower-level host method:
 
 ```text
 TAB_HYBRID_SNAPSHOT
@@ -442,17 +490,41 @@ The method should capture:
 - Per-frame outlines and a merged global outline.
 - URL map from AX node URL properties.
 
-This is the Stagehand-inspired substrate. It should live in the host so SDK and agents get one canonical environment model.
+This is the Stagehand-inspired substrate. It should live in the host so SDK and agents get one canonical environment model. The public SDK-level `tab.affordanceGraph()` composes this substrate with DOM-CUA, screenshot, lifecycle, and diagnostics.
+
+V2 is the first phase allowed to set:
+
+```ts
+meta.executableBridge = "complete";
+```
+
+for nodes whose encoded id has a validated DOM-index mapping and at least one executable locator recipe.
+
+### 8.2.1 Backend capability contract
+
+The hybrid method must be capability-aware. It must not silently become CDP-only.
+
+| Source | Purpose | If present | If partial/unsupported |
+|---|---|---|---|
+| `a11y` | LLM semantic tree | emit AX-derived nodes and outline | fall back to `snapshotText`/`domSnapshot` evidence; mark semantic confidence `low` or `unknown` |
+| `dom-index` | encoded id -> executable DOM location | emit backend-node map, XPath/frame data, tag/type metadata | graph is read-only for affected semantic nodes; `executableBridge` is `none` or `partial` |
+| `frame-merge` | cross-iframe global context | prefix child-frame paths and attach child outlines under iframe host nodes | mark `degradedFrames`; do not invent parent-child edges |
+| `dom-cua` | viewport geometry and observation-scoped action ids | attach visible geometry and DOM-CUA recipes | omit DOM-CUA recipes; keep semantic graph usable |
+| `visual` | screenshot/annotation fallback | attach coordinate recipes only with visual revisions | omit coordinate recipes; no visual freshness gate |
+
+Every source reports `present`, `partial`, `unsupported`, `failed`, or `omitted` through `diagnostics.sourceStatus`. Partial output is preferred over failing the entire observation.
 
 ### 8.3 V3: graph-aware action resolver
 
 After graph quality is validated, add `source: "affordance"` targets. Resolver order:
 
-1. Highest-confidence unique role/testid/label locator.
-2. DOM-CUA target when visible and observation-scoped.
-3. Frame-scoped locator.
-4. XPath fallback.
-5. Coordinate fallback only when visual/annotation revisions match.
+1. Prefer route-local `high` confidence recipes with uniqueness evidence, in this order: `testid`, `role`, `label`, `text`, `css`.
+2. Prefer DOM-CUA when the node is visible, observation-scoped, and the action is pointer/typing compatible.
+3. Prefer frame-scoped locator over global XPath when both exist.
+4. Use XPath only as a fallback, and only when its encoded-id mapping is current.
+5. Use coordinate fallback only when visual/annotation revisions match and no semantic locator route is reliable.
+
+Confidence is advisory inside each route. Resolver order is not a numeric max across all routes.
 
 ### 8.4 V4: graph-aware self-heal
 
@@ -485,14 +557,20 @@ No new top-level observe states are required for V1. Graph capture is a section:
 
 - `sections.affordanceGraph = present` when graph builds successfully.
 - `failed` when graph capture fails but observation can still return other sections.
-- `blocked` when backend capability is unsupported.
+- `blocked` only when the requested graph mode cannot produce any usable graph because required backend capability is unsupported.
 - `omitted` when not requested.
 
 Freshness:
 
-- Add `affordanceGraphRevision` to `ObservationLifecycle`.
-- Revision should hash semantic node ids, locator recipes, frame ids, blocker signals, and relevant DOM-CUA revision when included.
-- Action targets using graph nodes must validate the graph revision before acting.
+- Add dependency-specific graph revisions to `ObservationLifecycle`.
+- `affordanceSemanticRevision` hashes semantic node ids, roles, names, frame ownership, and graph topology.
+- `affordanceLocatorRevision` hashes executable locator recipes and encoded-id mappings.
+- `affordanceGeometryRevision` hashes DOM-CUA geometry and observation-scoped visible-node membership when included.
+- `affordanceDiagnosticsRevision` hashes blocker signals and degraded-source diagnostics, but it must not gate action execution.
+- Action targets using graph nodes must validate only the revisions relevant to the selected route:
+  - semantic locator route: semantic + locator.
+  - DOM-CUA route: semantic + geometry + DOM-CUA revision.
+  - coordinate route: semantic + geometry + visual/annotation revisions.
 - Graph observations are non-durable, like other observation ids. A resumed task must re-observe.
 
 Invalidation:
@@ -566,7 +644,9 @@ The state machine only enforces freshness, ownership, and safety invariants.
 - Ignore selectors: excluded subtrees do not appear in graph or locator maps.
 - Locator recipes: uniqueness/confidence/ambiguity are correct.
 - Blocker signals: consent/login/captcha/paywall examples produce diagnostic evidence only.
-- Revision hashing: stable graph yields stable revision; meaningful changes alter it.
+- Revision hashing: semantic, locator, geometry, visual, and diagnostic revisions change only when their own dependency changes.
+- V1 preview graph: `aria-line:*` nodes are read-only and never expose action-bound recipes.
+- Capability matrix: unsupported/partial sources produce `diagnostics.sourceStatus` and preserve partial output.
 
 ### Integration tests
 
@@ -575,6 +655,7 @@ The state machine only enforces freshness, ownership, and safety invariants.
 - DOM-CUA graph locators require current observation id.
 - Graph action target, once added, validates freshness before execution.
 - OOPIF/frame cases preserve frame ownership and executable routing.
+- Direct `tab.affordanceGraph()` returns a graph observation envelope with lifecycle and section status.
 
 ### Live validation workflows
 
@@ -607,15 +688,16 @@ Success criteria:
 
 - Add TypeScript types.
 - Add `includeAffordanceGraph` option and section status.
-- Implement SDK-only graph composer from existing surfaces.
-- Add tests for graph shape, section behavior, and revision stability.
+- Implement SDK-only read-only graph preview from existing surfaces.
+- Add tests for graph shape, source labels, section behavior, preview/read-only invariants, and revision stability.
 
-### Phase 2: Stagehand-style hybrid substrate
+### Phase 2: Minimal Stagehand-style hybrid substrate
 
-- Add host-level hybrid snapshot method.
+- Add host-level `TAB_HYBRID_SNAPSHOT` method.
 - Capture AX tree + DOM index + frame merge.
-- Add encoded ids and XPath/frame maps.
+- Add explicit `f{ordinal}-be{backendNodeId}` encoded ids and XPath/frame maps.
 - Add scoped and ignored-selector support.
+- Add backend capability diagnostics and partial-output behavior.
 - Add deep DOM fallback tests similar to Stagehand's CBOR-depth coverage.
 
 ### Phase 3: Agent-facing prompt/playbook update
@@ -628,7 +710,7 @@ Success criteria:
 
 - Add `source: "affordance"` targets.
 - Add resolver and confidence ranking.
-- Add freshness enforcement through `affordanceGraphRevision`.
+- Add freshness enforcement through route-specific graph revisions.
 
 ### Phase 5: Self-heal and blocker diagnostics
 
@@ -647,23 +729,24 @@ Success criteria:
 - **State-machine burden:** keep graph as an observation section, not a separate operational protocol.
 - **Website-specific overfitting:** blocker taxonomy uses evidence and confidence, not site rules.
 
-## 15. Open Questions For Review
+## 15. Decisions
 
-1. Should V1 expose `affordanceGraph` by default in `mode: "actionable"`, or only behind `includeAffordanceGraph` until validation?
-2. Should the host method be named `tab_affordance_graph` or lower-level `tab_hybrid_snapshot`?
-3. Should encoded ids use Stagehand-like `0-123` or more explicit `f0-be123`?
-4. Should blocker detection live in SDK composer first, or host once the hybrid substrate exists?
-5. What should the max default graph size be before truncation advisories appear?
+1. V1 is opt-in only through `includeAffordanceGraph` or direct `tab.affordanceGraph()`.
+2. The host substrate method is named `TAB_HYBRID_SNAPSHOT`; the public SDK graph method remains `tab.affordanceGraph()`.
+3. Encoded ids use the explicit form `f{ordinal}-be{backendNodeId}`.
+4. Blocker detection starts in SDK as diagnostic evidence only; host-level blocker evidence can be added later if it improves source quality.
+5. Default graph cap is `maxNodes: 120`, with honest `shown`, `total`, `truncated`, and diagnostics. The cap affects graph output only, not the availability of full `domSnapshot()`, screenshot, evaluate, or scoped re-observe.
 
 ## 16. Recommended Decision
 
-Proceed with Phase 1 as a low-risk validation layer:
+Proceed with Phase 1 as a low-risk read-only preview layer:
 
 - Add `includeAffordanceGraph`.
-- Compose graph from existing OBU surfaces.
+- Compose a preview graph from existing OBU surfaces.
+- Mark executable bridge as `none` or `partial`.
 - Preserve current behavior by default.
-- Measure whether graph improves LLM navigation/operation on complex workflows.
+- Measure whether graph improves LLM orientation, blocker diagnosis, and tool choice on complex workflows.
 
-Then implement Phase 2 only after Phase 1 demonstrates that the graph representation improves output robustness.
+Then implement Phase 2 before claiming robust executable graph behavior or adding `source: "affordance"` actions. Phase 1 can validate prompt usefulness; Phase 2 is required to validate the hybrid semantic-id-to-executable-target invariant.
 
 This keeps the work aligned with the principle: LLM-first, evidence-rich observation, broad action freedom, and lifecycle-aware execution.
