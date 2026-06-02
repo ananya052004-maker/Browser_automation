@@ -3,7 +3,7 @@ import type { Locator } from "./locator.js";
 
 export type PostconditionPass = { ok: true; condition: string };
 export type CustomPostconditionResult =
-  | true
+  | boolean
   | { ok: true }
   | { ok: false; expected?: unknown; actual?: unknown; message?: string };
 export type PostconditionOptions = { timeout?: number; interval?: number };
@@ -70,9 +70,12 @@ export class TabPostconditions {
   ): Promise<PostconditionPass> {
     return await this.expectEventually(condition, opts, async () => {
       const result = await predicate();
-      if (result === true) return { ok: true };
-      if (result.ok === true) return { ok: true };
-      return result;
+      return normalizeCustomResult(result) ?? {
+        ok: false,
+        expected: "a boolean or { ok } postcondition result",
+        actual: result,
+        message: "custom predicate returned an invalid result",
+      };
     });
   }
 
@@ -106,4 +109,21 @@ function positiveMs(value: number | undefined, fallback: number): number {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeCustomResult(value: unknown): PostconditionCheck | undefined {
+  if (value === true) return { ok: true };
+  if (value === false) return { ok: false, expected: true, actual: false };
+  if (value === null || typeof value !== "object") return undefined;
+  const record = value as { ok?: unknown; expected?: unknown; actual?: unknown; message?: unknown };
+  if (record.ok === true) return { ok: true };
+  if (record.ok === false) {
+    return {
+      ok: false,
+      expected: record.expected,
+      actual: record.actual,
+      ...(typeof record.message === "string" ? { message: record.message } : {}),
+    };
+  }
+  return undefined;
 }

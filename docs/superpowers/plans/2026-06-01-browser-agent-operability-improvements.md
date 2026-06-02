@@ -1784,6 +1784,20 @@ describe("TabPostconditions", () => {
 
     await expect(helper.custom("toast", async () => ({ ok: false, actual: "missing", expected: "Saved" }), { timeout: 1, interval: 1 })).rejects.toBeInstanceOf(PostconditionFailedError);
   });
+
+  it("treats plain false custom predicate results as product-classified failures", async () => {
+    const helper = new TabPostconditions({ url: async () => "https://example.test" });
+
+    await expect(helper.custom("toast", async () => false, { timeout: 1, interval: 1 })).rejects.toMatchObject({
+      code: ERR_POSTCONDITION_FAILED,
+      data: {
+        code: "postcondition_failed",
+        condition: "toast",
+        expected: true,
+        actual: false,
+      },
+    });
+  });
 });
 ```
 
@@ -1806,7 +1820,7 @@ import { ERR_POSTCONDITION_FAILED, ObuError, productErrorData } from "./errors.j
 import type { Locator } from "./locator.js";
 
 export type PostconditionPass = { ok: true; condition: string };
-export type CustomPostconditionResult = true | { ok: true } | { ok: false; expected?: unknown; actual?: unknown; message?: string };
+export type CustomPostconditionResult = boolean | { ok: true } | { ok: false; expected?: unknown; actual?: unknown; message?: string };
 export type PostconditionOptions = { timeout?: number; interval?: number };
 
 type PostconditionCheck = { ok: true } | { ok: false; expected?: unknown; actual?: unknown; message?: string };
@@ -1872,8 +1886,14 @@ export class TabPostconditions {
     return await this.expectEventually(condition, opts, async () => {
       const result = await predicate();
       if (result === true) return { ok: true };
-      if (result.ok === true) return { ok: true };
-      return result;
+      if (result === false) return { ok: false, expected: true, actual: false };
+      const normalized = normalizeCustomResult(result);
+      return normalized ?? {
+        ok: false,
+        expected: "a boolean or { ok } postcondition result",
+        actual: result,
+        message: "custom predicate returned an invalid result",
+      };
     });
   }
 
@@ -1908,6 +1928,23 @@ function positiveMs(value: number | undefined, fallback: number): number {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeCustomResult(value: unknown): PostconditionCheck | undefined {
+  if (value === true) return { ok: true };
+  if (value === false) return { ok: false, expected: true, actual: false };
+  if (value === null || typeof value !== "object") return undefined;
+  const record = value as { ok?: unknown; expected?: unknown; actual?: unknown; message?: unknown };
+  if (record.ok === true) return { ok: true };
+  if (record.ok === false) {
+    return {
+      ok: false,
+      expected: record.expected,
+      actual: record.actual,
+      ...(typeof record.message === "string" ? { message: record.message } : {}),
+    };
+  }
+  return undefined;
 }
 ```
 

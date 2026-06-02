@@ -72,4 +72,18 @@ describe("TabPostconditions", () => {
       }),
     ).rejects.toBeInstanceOf(PostconditionFailedError);
   });
+
+  it("treats plain false custom predicate results as product-classified failures", async () => {
+    const helper = new TabPostconditions({ url: async () => "https://example.test" });
+
+    await expect(helper.custom("toast", async () => false, { timeout: 1, interval: 1 })).rejects.toMatchObject({
+      code: ERR_POSTCONDITION_FAILED,
+      data: {
+        code: "postcondition_failed",
+        condition: "toast",
+        expected: true,
+        actual: false,
+      },
+    });
+  });
 });
