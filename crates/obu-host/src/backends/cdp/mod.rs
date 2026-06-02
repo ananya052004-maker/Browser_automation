@@ -586,10 +586,7 @@ impl CdpBackend {
     }
 
     fn validate_event_query_tab(&self, ctx: &BackendRequestContext, tab_id: &str) -> Result<()> {
-        let Some(record) = self
-            .registry()
-            .get(&crate::tab_state::TabId::new(tab_id))?
-        else {
+        let Some(record) = self.registry().get(&crate::tab_state::TabId::new(tab_id))? else {
             return Ok(());
         };
         if record.session_id.as_deref() != ctx.session_id.as_deref() {
@@ -627,10 +624,7 @@ fn require_session_turn_context<'a>(
     Ok(session_id)
 }
 
-fn require_session_id_context<'a>(
-    ctx: &'a BackendRequestContext,
-    method: &str,
-) -> Result<&'a str> {
+fn require_session_id_context<'a>(ctx: &'a BackendRequestContext, method: &str) -> Result<&'a str> {
     ctx.session_id
         .as_deref()
         .filter(|session_id| !session_id.is_empty())
@@ -650,7 +644,10 @@ fn dev_event_query_parts(params: &Value) -> Result<(&str, Vec<&str>, usize, bool
         .and_then(Value::as_u64)
         .unwrap_or(100)
         .min(500) as usize;
-    let clear = params.get("clear").and_then(Value::as_bool).unwrap_or(false);
+    let clear = params
+        .get("clear")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     Ok((tab_id, methods, max_entries, clear))
 }
 

@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::{AgentRuntimeKernelLifecycle, BackendInventory};
 
@@ -15,8 +15,10 @@ pub(super) fn browser_status_summary(
         .iter()
         .any(|backend| backend.kind == "webextension");
     let kernel_actionable = kernel_allows_js(kernel_lifecycle);
-    let actionable =
-        sdk_bootstrap == "available" && backend_count > 0 && product_error.is_none() && kernel_actionable;
+    let actionable = sdk_bootstrap == "available"
+        && backend_count > 0
+        && product_error.is_none()
+        && kernel_actionable;
     let product_next = product_error.and_then(|value| value.get("next_action"));
     let next_step = if actionable {
         json!({
@@ -115,10 +117,12 @@ fn kernel_next_step(lifecycle: &AgentRuntimeKernelLifecycle) -> Value {
             "kind": "js_reset",
             "summary": "The JavaScript kernel failed; use js_reset, then call browser_status again."
         }),
-        AgentRuntimeKernelLifecycle::Idle { .. } | AgentRuntimeKernelLifecycle::Ready { .. } => json!({
-            "kind": "use_js",
-            "summary": "Browser environment is ready; use the js tool."
-        }),
+        AgentRuntimeKernelLifecycle::Idle { .. } | AgentRuntimeKernelLifecycle::Ready { .. } => {
+            json!({
+                "kind": "use_js",
+                "summary": "Browser environment is ready; use the js tool."
+            })
+        }
     }
 }
 
@@ -126,9 +130,9 @@ fn kernel_next_step(lifecycle: &AgentRuntimeKernelLifecycle) -> Value {
 mod tests {
     use std::collections::HashMap;
 
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
-    use super::{browser_status_summary, AgentRuntimeKernelLifecycle, BackendInventory};
+    use super::{AgentRuntimeKernelLifecycle, BackendInventory, browser_status_summary};
     use crate::repl_manager::DiscoveredBackend;
 
     fn inventory_with_backend_kind(kind: &str) -> BackendInventory {

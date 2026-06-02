@@ -141,7 +141,12 @@ impl Default for DevEventBuffer {
 fn bound_params(params: Value, max_bytes: usize) -> (Value, bool) {
     let Ok(serialized) = serde_json::to_string(&params) else {
         return (
-            bounded_summary("unserializable event params", value_type(&params), 0, max_bytes),
+            bounded_summary(
+                "unserializable event params",
+                value_type(&params),
+                0,
+                max_bytes,
+            ),
             true,
         );
     };
@@ -215,8 +220,7 @@ fn matches_query_for_read(row: &DevEvent, query: &DevEventQuery<'_>) -> bool {
                 .session_id
                 .map(|session_id| row.session_id.as_deref() == Some(session_id))
                 .unwrap_or(true))
-        && (query.methods.is_empty()
-            || query.methods.iter().any(|method| row.method == *method))
+        && (query.methods.is_empty() || query.methods.iter().any(|method| row.method == *method))
 }
 
 fn matches_query_for_clear(row: &DevEvent, query: &DevEventQuery<'_>) -> bool {
@@ -227,8 +231,7 @@ fn matches_query_for_clear(row: &DevEvent, query: &DevEventQuery<'_>) -> bool {
                 .session_id
                 .map(|session_id| row.session_id.as_deref() == Some(session_id))
                 .unwrap_or(true))
-        && (query.methods.is_empty()
-            || query.methods.iter().any(|method| row.method == *method))
+        && (query.methods.is_empty() || query.methods.iter().any(|method| row.method == *method))
 }
 
 fn now_ms() -> u128 {

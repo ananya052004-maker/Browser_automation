@@ -65,8 +65,14 @@ async fn browser_status_reports_missing_sdk_and_no_backend() {
     assert_eq!(status["summary"]["actionable"], json!(false));
     assert_eq!(status["summary"]["state"], json!("blocked"));
     assert_eq!(status["summary"]["host"]["state"], json!("missing_sdk"));
-    assert_eq!(status["summary"]["extension"]["state"], json!("unavailable"));
-    assert_eq!(status["summary"]["transport"]["state"], json!("unavailable"));
+    assert_eq!(
+        status["summary"]["extension"]["state"],
+        json!("unavailable")
+    );
+    assert_eq!(
+        status["summary"]["transport"]["state"],
+        json!("unavailable")
+    );
     assert_eq!(status["summary"]["next_step"]["kind"], json!("run_verify"));
     assert_eq!(
         status["product_error"]["next_action"]["kind"],

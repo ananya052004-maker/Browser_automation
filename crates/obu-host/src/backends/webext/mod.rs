@@ -2899,10 +2899,7 @@ fn required_str<'a>(params: &'a Value, key: &str) -> Result<&'a str> {
         .ok_or_else(|| HostError::Protocol(format!("missing {key}")))
 }
 
-fn require_session_id_context<'a>(
-    ctx: &'a BackendRequestContext,
-    method: &str,
-) -> Result<&'a str> {
+fn require_session_id_context<'a>(ctx: &'a BackendRequestContext, method: &str) -> Result<&'a str> {
     ctx.session_id
         .as_deref()
         .filter(|session_id| !session_id.is_empty())
@@ -2922,7 +2919,10 @@ fn dev_event_query_parts(params: &Value) -> Result<(&str, Vec<&str>, usize, bool
         .and_then(Value::as_u64)
         .unwrap_or(100)
         .min(500) as usize;
-    let clear = params.get("clear").and_then(Value::as_bool).unwrap_or(false);
+    let clear = params
+        .get("clear")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     Ok((tab_id, methods, max_entries, clear))
 }
 
